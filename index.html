@@ -252,13 +252,19 @@ function Banner({ tone = 'warn', children }) {
    also carries an icon + its own words, so identity is never colour alone. */
 
 function BigCard({ bg, ink, icon, label, value, sub }) {
+  // An em dash at 4rem reads as a redaction bar, not "no data yet". When there's
+  // nothing to show, shrink it and say so in words instead.
+  const empty = value === '—';
   return (
     <div className="rounded-3xl p-6 sm:p-7 lift flex flex-col justify-between min-h-[190px]" style={{ background: bg, color: ink }}>
       <div className="flex items-start justify-between gap-3">
         <span className="text-sm sm:text-base font-black uppercase tracking-[.06em] leading-tight" style={{ opacity: .92 }}>{label}</span>
         <span className="text-3xl leading-none shrink-0" aria-hidden="true">{icon}</span>
       </div>
-      <div className="figure font-black leading-[0.95] mt-4" style={{ fontSize: 'clamp(2.6rem, 7vw, 4rem)' }}>{value}</div>
+      <div className="figure font-black leading-[0.95] mt-4"
+           style={{ fontSize: empty ? 'clamp(1.4rem, 3vw, 1.9rem)' : 'clamp(2.6rem, 7vw, 4rem)', opacity: empty ? .6 : 1 }}>
+        {empty ? 'Nothing yet' : value}
+      </div>
       <div className="text-sm font-bold mt-3 leading-snug" style={{ opacity: .88 }}>{sub}</div>
     </div>
   );
@@ -350,20 +356,33 @@ function Funnel({ leads, demos, closes }) {
 
 function SignIn() {
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [pw, setPw] = useState('');
+  const [mode, setMode] = useState('in');   // 'in' = sign in, 'new' = create account
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
 
-  const send = async () => {
+  const friendly = m => {
+    const t = (m || '').toLowerCase();
+    if (t.includes('invalid login')) return "That email and password don't match. Check for typos, or create an account below.";
+    if (t.includes('already registered') || t.includes('already been registered')) return 'You already have an account. Use "Sign in" instead.';
+    if (t.includes('password should be')) return 'Your password needs to be at least 6 characters.';
+    if (t.includes('rate limit')) return 'Too many tries at once. Wait a minute and try again.';
+    if (t.includes('email not confirmed')) return 'This account still needs confirming. Turn off "Confirm email" in Supabase, then try again.';
+    return m;
+  };
+
+  const go = async () => {
     const addr = email.trim();
-    if (!addr) return;
-    setBusy(true); setErr('');
-    const { error } = await sb.auth.signInWithOtp({
-      email: addr,
-      options: { emailRedirectTo: window.location.origin + window.location.pathname }
-    });
+    if (!addr || !pw) return;
+    setBusy(true); setErr(''); setOk('');
+    const r = mode === 'in'
+      ? await sb.auth.signInWithPassword({ email: addr, password: pw })
+      : await sb.auth.signUp({ email: addr, password: pw });
     setBusy(false);
-    if (error) setErr(error.message); else setSent(true);
+    if (r.error) { setErr(friendly(r.error.message)); return; }
+    // With "Confirm email" off, signUp returns a session and we're straight in.
+    if (mode === 'new' && !r.data.session) setOk('Account made. Now press Sign in.');
   };
 
   return (
@@ -371,43 +390,29 @@ function SignIn() {
       <div className="bg-white rounded-3xl lift w-full max-w-xl p-8 sm:p-12 text-center">
         <img src="sfr-logo.png" alt={COMPANY} className="h-16 sm:h-20 w-auto mx-auto" />
         <h1 className="text-3xl sm:text-4xl font-black text-navy mt-7 leading-tight">Profit Board</h1>
+        <p className="text-lg sm:text-xl font-bold text-ink mt-4 leading-snug">
+          {mode === 'in' ? 'Sign in to see your jobs.' : 'Pick a password and you\u2019re in.'}
+        </p>
 
-        {!sent ? (
-          <>
-            <p className="text-lg sm:text-xl font-bold text-ink mt-4 leading-snug">
-              Type your email address.<br />We'll send you a link that signs you in.
-            </p>
-            <p className="text-base font-bold text-muted mt-2">There is no password to remember.</p>
+        <div className="mt-7 text-left grid gap-4">
+          <Field label="Your email address" big type="email" value={email} onChange={setEmail}
+                 placeholder="you@example.com" autoFocus />
+          <Field label="Your password" big type="password" value={pw} onChange={setPw}
+                 placeholder="At least 6 characters"
+                 hint={mode === 'new' ? 'Write it down somewhere safe.' : ''} />
+        </div>
 
-            <div className="mt-8 text-left">
-              <Field label="Your email address" big type="email" value={email} onChange={setEmail}
-                     placeholder="you@example.com" autoFocus />
-            </div>
+        {err && <div className="mt-4 text-left"><Banner tone="error">{err}</Banner></div>}
+        {ok  && <div className="mt-4 text-left"><Banner tone="info">{ok}</Banner></div>}
 
-            {err && <div className="mt-4 text-left"><Banner tone="error">{err}</Banner></div>}
+        <Btn tone="orange" size="xl" onClick={go} disabled={busy || !email.trim() || !pw} className="w-full mt-6">
+          {busy ? 'One moment\u2026' : mode === 'in' ? 'Sign in' : 'Create my account'}
+        </Btn>
 
-            <Btn tone="orange" size="xl" onClick={send} disabled={busy || !email.trim()} className="w-full mt-6">
-              {busy ? 'Sending…' : 'Send me my sign-in link'}
-            </Btn>
-          </>
-        ) : (
-          <div className="mt-6">
-            <div className="text-7xl" aria-hidden="true">📬</div>
-            <h2 className="text-2xl sm:text-3xl font-black text-money mt-5 leading-tight">Check your email</h2>
-            <p className="text-lg font-bold text-ink mt-4 leading-snug">
-              We just sent a message to<br /><b className="text-navy break-all">{email.trim()}</b>
-            </p>
-            <p className="text-lg font-bold text-ink mt-4 leading-snug">
-              Open it and tap the blue link inside.<br />That's it — you'll be signed in.
-            </p>
-            <p className="text-sm font-bold text-muted mt-5">
-              Don't see it? Look in your junk or spam folder. The link works for one hour.
-            </p>
-            <Btn tone="ghost" size="md" onClick={() => { setSent(false); setErr(''); }} className="mt-7">
-              Use a different email
-            </Btn>
-          </div>
-        )}
+        <button onClick={() => { setMode(mode === 'in' ? 'new' : 'in'); setErr(''); setOk(''); }}
+                className="mt-6 text-base font-black text-navy underline underline-offset-4">
+          {mode === 'in' ? 'First time here? Create my account' : 'I already have an account'}
+        </button>
       </div>
     </div>
   );
