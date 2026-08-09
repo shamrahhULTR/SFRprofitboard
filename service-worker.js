@@ -4,15 +4,15 @@
    reload when a new worker takes over causes the double-reload we hit on the
    roof planner. */
 
-const CACHE = 'sfr-profit-board-v2';
+const CACHE = 'sfr-profit-board-v3';
 
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './icon.svg',
-  './favicon.png',
-  './apple-touch-icon.png',
+  './favicon.png?v=2',
+  './apple-touch-icon.png?v=2',
   './sfr-logo.png',
   './sfr-logo-reversed.png'
 ];

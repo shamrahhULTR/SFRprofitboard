@@ -22,6 +22,12 @@
     Cache-Control = "no-cache"
 
 [[headers]]
+  for = "/*.png"
+  [headers.values]
+    # Icons change when the brand changes; always check with the server first.
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
