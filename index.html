@@ -753,7 +753,7 @@ function JobsTable({ jobs, docs, isAdmin, onToggle, onEdit, onDelete, onPapers }
       </div>
 
       <div className="hidden sm:block bg-white rounded-3xl card-shadow overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto relative">
         <table className={'w-full border-collapse ' + (isAdmin ? 'min-w-[1000px]' : 'min-w-[620px]')}>
           <thead>
             <tr className="bg-navy text-white text-left">
@@ -852,7 +852,7 @@ function MarketingTable({ rows, onEdit, onDelete }) {
       </div>
 
       <div className="hidden sm:block bg-white rounded-3xl card-shadow overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto relative">
         <table className="w-full border-collapse min-w-[820px]">
           <thead>
             <tr className="bg-navy text-white text-left">
@@ -898,8 +898,36 @@ function MarketingTable({ rows, onEdit, onDelete }) {
 
 function TeamPanel({ people, meId, onSetRole, busyId }) {
   return (
-    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
-      <div className="overflow-x-auto">
+    <>
+      {/* Phones: one card per person, no 620px table to swipe across. */}
+      <div className="grid gap-4 sm:hidden">
+        {people.map(p => {
+          const admin = p.role === 'admin';
+          return (
+            <div key={p.id} className="bg-white rounded-3xl card-shadow p-5">
+              <div className="font-black text-ink text-lg leading-tight break-words">{p.full_name || p.email}</div>
+              <div className="text-xs font-bold text-muted mt-1 break-all">{p.email}{p.id === meId ? ' · you' : ''}</div>
+              <span className="inline-block mt-3 rounded-full px-3 py-1.5 text-xs font-black text-white"
+                    style={{ background: admin ? '#9333EA' : '#5A6B7F' }}>
+                {admin ? 'Everything, including money' : 'Jobs and papers only'}
+              </span>
+              <div className="mt-4">
+                {p.id === meId ? (
+                  <span className="text-xs font-bold text-muted">You can't change your own access</span>
+                ) : (
+                  <Btn tone={admin ? 'ghost' : 'navy'} size="md" disabled={busyId === p.id}
+                       onClick={() => onSetRole(p, admin ? 'crew' : 'admin')} className="w-full">
+                    {busyId === p.id ? '…' : admin ? 'Make crew' : 'Make admin'}
+                  </Btn>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden sm:block bg-white rounded-3xl card-shadow overflow-hidden">
+      <div className="overflow-x-auto relative">
         <table className="w-full border-collapse min-w-[620px]">
           <thead>
             <tr className="bg-navy text-white text-left">
@@ -939,7 +967,8 @@ function TeamPanel({ people, meId, onSetRole, busyId }) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
