@@ -639,6 +639,91 @@ function MarketingForm({ initial, onSave, onClose }) {
 
 /* ══════════════════════════ tables ══════════════════════════ */
 
+/* On a phone a wide table means swiping sideways to reach the number that
+   matters, so below the sm breakpoint every row becomes its own card. */
+
+function JobCard({ j, docCount, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
+  const m = jobMetrics(j);
+  const st = marginState(m.margin);
+  return (
+    <div className="bg-white rounded-3xl card-shadow p-5">
+      <div className="flex items-start gap-3">
+        <button onClick={() => onToggle(j)} aria-pressed={!!j.done}
+                aria-label={j.done ? `${j.name} is installed` : `${j.name} is not installed yet`}
+                className="w-12 h-12 rounded-full grid place-items-center text-white text-2xl font-black shrink-0"
+                style={{ background: j.done ? '#0E7A4A' : '#CBD5E1' }}>
+          {j.done ? '✓' : ''}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="font-black text-ink text-lg leading-tight">{j.name}</div>
+          <div className="text-xs font-bold text-muted mt-1">
+            {j.done ? 'Installed' : 'In progress'}{num(j.squares) ? ` · ${num(j.squares)} squares` : ''}
+          </div>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="bg-shell rounded-2xl px-4 py-3">
+              <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">They paid</div>
+              <div className="figure text-2xl font-black text-navy mt-0.5">{moneyExact(m.revenue)}</div>
+            </div>
+            <div className="bg-shell rounded-2xl px-4 py-3">
+              <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">You keep</div>
+              <div className="figure text-2xl font-black mt-0.5" style={{ color: m.profit >= 0 ? '#0E7A4A' : '#BE2B1D' }}>
+                {moneyExact(m.profit)}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <div className="h-2.5 flex-1 rounded-[4px]" style={{ background: '#E8EDF2' }}>
+              <div className="h-2.5 rounded-[4px]"
+                   style={{ width: Math.max(0, Math.min(100, m.margin ?? 0)) + '%', background: st.color }} />
+            </div>
+            <span className="text-sm font-black tnum whitespace-nowrap" style={{ color: st.color }}>
+              {m.margin === null ? '—' : pct(m.margin)} {st.label}
+            </span>
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2 mt-4">
+        <Btn tone="navy" size="md" onClick={() => onPapers(j)} className="flex-1">🧾 Papers{docCount ? ` (${docCount})` : ''}</Btn>
+        <Btn tone="ghost" size="md" onClick={() => onEdit(j)} className="flex-1">Edit</Btn>
+        {isAdmin && <Btn tone="danger" size="md" onClick={() => onDelete(j)}>Delete</Btn>}
+      </div>
+    </div>
+  );
+}
+
+function MarketingCard({ r, onEdit, onDelete }) {
+  return (
+    <div className="bg-white rounded-3xl card-shadow p-5">
+      <div className="font-black text-ink text-lg leading-tight">{r.label}</div>
+      <div className="text-xs font-bold text-muted mt-1">
+        {moneyExact(r.spend)} spent · {num(r.leads)} leads · {num(r.demos)} demos · {num(r.closes)} sales
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="bg-shell rounded-2xl px-4 py-3">
+          <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">Per lead</div>
+          <div className="figure text-2xl font-black text-navy mt-0.5">{showMoney(ratio(num(r.spend), num(r.leads)))}</div>
+        </div>
+        <div className="bg-shell rounded-2xl px-4 py-3">
+          <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">Per customer</div>
+          <div className="figure text-2xl font-black mt-0.5" style={{ color: '#9333EA' }}>
+            {showMoney(ratio(num(r.spend), num(r.closes)))}
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-4">
+        <Btn tone="ghost" size="md" onClick={() => onEdit(r)} className="flex-1">Edit</Btn>
+        <Btn tone="danger" size="md" onClick={() => onDelete(r)}>Delete</Btn>
+      </div>
+    </div>
+  );
+}
+
 function JobsTable({ jobs, docs, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
   if (!jobs.length) {
     return (
@@ -653,7 +738,16 @@ function JobsTable({ jobs, docs, isAdmin, onToggle, onEdit, onDelete, onPapers }
   const docCount = id => docs.filter(d => d.job_id === id).length;
 
   return (
-    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
+    <>
+      {/* Phones get one card per job — no sideways swiping to reach the money. */}
+      <div className="grid gap-4 sm:hidden">
+        {jobs.map(j => (
+          <JobCard key={j.id} j={j} docCount={docCount(j.id)} isAdmin={isAdmin}
+                   onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onPapers={onPapers} />
+        ))}
+      </div>
+
+      <div className="hidden sm:block bg-white rounded-3xl card-shadow overflow-hidden">
       <div className="overflow-x-auto">
         <table className={'w-full border-collapse ' + (isAdmin ? 'min-w-[1000px]' : 'min-w-[620px]')}>
           <thead>
@@ -731,7 +825,8 @@ function JobsTable({ jobs, docs, isAdmin, onToggle, onEdit, onDelete, onPapers }
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -746,7 +841,12 @@ function MarketingTable({ rows, onEdit, onDelete }) {
     );
   }
   return (
-    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
+    <>
+      <div className="grid gap-4 sm:hidden">
+        {rows.map(r => <MarketingCard key={r.id} r={r} onEdit={onEdit} onDelete={onDelete} />)}
+      </div>
+
+      <div className="hidden sm:block bg-white rounded-3xl card-shadow overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full border-collapse min-w-[820px]">
           <thead>
@@ -784,7 +884,8 @@ function MarketingTable({ rows, onEdit, onDelete }) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
