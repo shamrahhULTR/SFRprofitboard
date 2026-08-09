@@ -1,0 +1,1314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Profit Board" />
+<meta name="theme-color" content="#102D7F" />
+<title>Profit Board · Square Foot Roofing</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="mask-icon" href="icon.svg" color="#102D7F">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,900&family=Archivo:wght@700;800;900&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          navy:      '#102D7F',  /* brand navy — squarefootroofing.com */
+          navyDeep:  '#0A1F5C',
+          orange:    '#F6821F',  /* brand orange — squarefootroofing.com */
+          money:     '#0E7A4A',  /* profit card */
+          moneyMark: '#17976B',  /* profit mark on white */
+          grape:     '#9333EA',  /* CAC card */
+          costMark:  '#5A6B7F',  /* cost mark on white */
+          warn:      '#E0A100',
+          danger:    '#BE2B1D',
+          ink:       '#14212B',
+          muted:     '#657381',
+          line:      '#DCE3EB',
+          shell:     '#EEF2F6'
+        },
+        fontFamily: { sans: ['DM Sans', 'Archivo', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'] }
+      }
+    }
+  }
+</script>
+
+<script src="config.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<script>
+  /* Babel's stock "react" preset defaults to the automatic JSX runtime, which
+     emits `import { jsx } from "react/jsx-runtime"` — invalid in a classic
+     script with no bundler. Pin the classic runtime so JSX compiles down to
+     React.createElement against the UMD global. */
+  Babel.registerPreset('react-classic', {
+    presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]]
+  });
+</script>
+
+<style>
+  :root { color-scheme: light; }
+  html, body { margin:0; background:#EEF2F6; font-family:'DM Sans','Archivo',system-ui,sans-serif; color:#14212B; }
+  /* Big standalone values use proportional figures; only columns get tabular. */
+  .figure  { font-variant-numeric: proportional-nums; letter-spacing:-.02em; }
+  .tnum    { font-variant-numeric: tabular-nums; }
+  .card-shadow { box-shadow: 0 10px 26px rgba(16,38,64,.10); }
+  .lift        { box-shadow: 0 18px 42px rgba(16,38,64,.16); }
+  input, select { font: inherit; }
+  input:focus, select:focus { outline:none; border-color:#102D7F; box-shadow:0 0 0 4px rgba(16,45,127,.16); }
+  .fade-in { animation: fade .18s ease-out; }
+  @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
+  @media print { .no-print { display:none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react-classic">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/* ══════════════════════════ connection ══════════════════════════ */
+
+const CFG   = window.SFR_CONFIG || {};
+const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseKey);
+const sb    = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey) : null;
+const COMPANY = CFG.companyName || 'Square Foot Roofing';
+
+/* ══════════════════════════ local storage (no-backend mode) ══════════════════════════ */
+
+const LS_JOBS = 'sfr_pb_jobs_v1';
+const LS_MKT  = 'sfr_pb_mkt_v1';
+
+function load(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  catch (e) { return fallback; }
+}
+function persist(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota / private mode */ }
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ══════════════════════════ numbers ══════════════════════════ */
+
+const num = v => { const n = parseFloat(String(v ?? '').replace(/[^0-9.-]/g, '')); return isFinite(n) ? n : 0; };
+
+// Whole dollars with commas; compacts past $1M so a huge value can't blow out the tile.
+function money(n) {
+  const v = Math.round(num(n));
+  const sign = v < 0 ? '-' : '';
+  const a = Math.abs(v);
+  if (a >= 1000000) return sign + '$' + (a / 1000000).toFixed(a >= 10000000 ? 0 : 2).replace(/\.00$/, '') + 'M';
+  return sign + '$' + a.toLocaleString('en-US');
+}
+const moneyExact = n => (num(n) < 0 ? '-' : '') + '$' + Math.abs(Math.round(num(n))).toLocaleString('en-US');
+const pct = n => (isFinite(n) ? Math.round(n) : 0) + '%';
+
+/* A metric with no denominator shows an em dash, never a 0 or NaN that reads as real. */
+const ratio = (top, bottom) => (num(bottom) > 0 ? num(top) / num(bottom) : null);
+const showMoney = v => (v === null ? '—' : money(v));
+const showPct   = v => (v === null ? '—' : pct(v));
+
+function jobMetrics(j) {
+  const revenue = num(j.revenue);
+  const cost = num(j.material) + num(j.labor) + num(j.dumpster);
+  const profit = revenue - cost;
+  const margin = revenue > 0 ? (profit / revenue) * 100 : null;
+  return { revenue, cost, profit, margin };
+}
+
+// Margin severity — status colors, always shipped with a word, never color alone.
+function marginState(margin) {
+  if (margin === null) return { key: 'none',   color: '#8A97A5', label: 'No revenue yet' };
+  if (margin >= 30)    return { key: 'good',   color: '#0E7A4A', label: 'Healthy' };
+  if (margin >= 15)    return { key: 'warn',   color: '#E0A100', label: 'Thin' };
+  return                     { key: 'danger', color: '#BE2B1D', label: 'Losing money' };
+}
+
+const DOC_KINDS = [
+  { v: 'receipt', t: 'Receipt' },
+  { v: 'invoice', t: 'Invoice' },
+  { v: 'permit',  t: 'Permit' },
+  { v: 'photo',   t: 'Photo' },
+  { v: 'other',   t: 'Other' }
+];
+const kindLabel = v => (DOC_KINDS.find(k => k.v === v) || { t: 'Other' }).t;
+const safeName = n => String(n || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+
+/* ══════════════════════════ UI atoms ══════════════════════════ */
+
+function Modal({ title, subtitle, onClose, children, wide }) {
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto"
+         style={{ background: 'rgba(12,26,45,.55)' }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={'bg-white w-full rounded-3xl lift fade-in my-auto ' + (wide ? 'max-w-3xl' : 'max-w-2xl')}
+           role="dialog" aria-modal="true" aria-label={title}>
+        <div className="flex items-start justify-between gap-4 px-6 sm:px-8 pt-6 pb-4 border-b border-line">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-black text-navy leading-tight">{title}</h2>
+            {subtitle && <p className="text-sm text-muted font-semibold mt-1">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} aria-label="Close"
+                  className="shrink-0 w-11 h-11 rounded-full bg-shell text-navy text-2xl font-black leading-none hover:bg-line">×</button>
+        </div>
+        <div className="px-6 sm:px-8 py-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, hint, prefix, value, onChange, type = 'text', placeholder, autoFocus, big }) {
+  return (
+    <label className="block">
+      <span className={'block font-black uppercase tracking-[.09em] text-muted mb-2 ' + (big ? 'text-sm' : 'text-[11px]')}>{label}</span>
+      <div className="relative">
+        {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-black text-muted pointer-events-none">{prefix}</span>}
+        <input
+          type={type} inputMode={type === 'number' ? 'decimal' : undefined} value={value} autoFocus={autoFocus}
+          onChange={e => onChange(e.target.value)} placeholder={placeholder}
+          className={'w-full rounded-2xl border-2 border-line bg-white font-bold text-ink transition '
+            + (big ? 'py-5 text-2xl ' : 'py-3.5 text-lg ') + (prefix ? 'pl-9 pr-4' : 'px-4')} />
+      </div>
+      {hint && <span className="block text-xs text-muted font-semibold mt-1.5">{hint}</span>}
+    </label>
+  );
+}
+
+function Btn({ children, onClick, tone = 'navy', size = 'md', className = '', type = 'button', disabled }) {
+  const tones = {
+    navy:  'bg-navy text-white hover:bg-navyDeep',
+    green: 'bg-money text-white hover:brightness-110',
+    orange:'bg-orange text-navyDeep hover:brightness-105',
+    ghost: 'bg-shell text-navy hover:bg-line',
+    white: 'bg-white text-navy hover:bg-shell',
+    danger:'bg-white text-danger hover:bg-shell'
+  };
+  const sizes = {
+    sm: 'px-3.5 py-2 text-sm rounded-xl',
+    md: 'px-5 py-3 text-base rounded-2xl',
+    lg: 'px-6 py-4 text-lg rounded-2xl',
+    xl: 'px-8 py-5 text-xl rounded-2xl'
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled}
+      className={`font-black transition card-shadow disabled:opacity-40 disabled:cursor-not-allowed ${tones[tone]} ${sizes[size]} ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+function Mini({ label, value, color, note }) {
+  return (
+    <div className="px-4 py-4 text-center">
+      <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">{label}</div>
+      <div className="figure text-2xl font-black mt-1" style={{ color: color || '#102D7F' }}>{value}</div>
+      {note && <div className="text-[11px] font-black mt-0.5" style={{ color }}>{note}</div>}
+    </div>
+  );
+}
+
+function Tile({ label, value, sub }) {
+  return (
+    <div className="bg-white rounded-2xl card-shadow px-5 py-5">
+      <div className="text-[11px] font-black uppercase tracking-[.08em] text-muted">{label}</div>
+      <div className="figure text-3xl sm:text-4xl font-black text-navy mt-1.5 leading-none">{value}</div>
+      <div className="text-xs font-bold text-muted mt-2">{sub}</div>
+    </div>
+  );
+}
+
+function Banner({ tone = 'warn', children }) {
+  const map = {
+    warn:  { bg: '#FFF8E6', bd: '#F0DCA0', fg: '#6B5200' },
+    error: { bg: '#FDECEA', bd: '#F3C0BA', fg: '#8A1F14' },
+    info:  { bg: '#EAF0FB', bd: '#C3D2EE', fg: '#102D7F' }
+  }[tone];
+  return (
+    <div className="rounded-2xl px-5 py-4 font-bold text-sm" style={{ background: map.bg, border: `1px solid ${map.bd}`, color: map.fg }}>
+      {children}
+    </div>
+  );
+}
+
+/* ═════════════════ the four headline tiles (admin only) ═════════════════ */
+/* Filled tiles, so the governing check is text-on-fill contrast (all ≥ 4.5:1)
+   and mutual separation (worst all-pairs CVD ΔE 13.5, normal 27.4). Each tile
+   also carries an icon + its own words, so identity is never colour alone. */
+
+function BigCard({ bg, ink, icon, label, value, sub }) {
+  return (
+    <div className="rounded-3xl p-6 sm:p-7 lift flex flex-col justify-between min-h-[190px]" style={{ background: bg, color: ink }}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="text-sm sm:text-base font-black uppercase tracking-[.06em] leading-tight" style={{ opacity: .92 }}>{label}</span>
+        <span className="text-3xl leading-none shrink-0" aria-hidden="true">{icon}</span>
+      </div>
+      <div className="figure font-black leading-[0.95] mt-4" style={{ fontSize: 'clamp(2.6rem, 7vw, 4rem)' }}>{value}</div>
+      <div className="text-sm font-bold mt-3 leading-snug" style={{ opacity: .88 }}>{sub}</div>
+    </div>
+  );
+}
+
+/* ══════════════════════ money split (stacked) ══════════════════════ */
+/* Part-to-whole, two series: 2px white surface gap between fills, 4px rounded
+   outer data-ends, legend always present. Values are direct-labelled, so no
+   number is reachable only by hovering. */
+
+function MoneySplit({ revenue, cost, profit }) {
+  const total = Math.max(revenue, 1);
+  const costPct = Math.max(0, Math.min(100, (cost / total) * 100));
+  const profitPct = Math.max(0, Math.min(100, (profit / total) * 100));
+  const hasData = revenue > 0;
+
+  return (
+    <section className="bg-white rounded-3xl card-shadow p-6 sm:p-7">
+      <h3 className="text-xl font-black text-navy">Where every dollar went</h3>
+      <p className="text-sm text-muted font-semibold mt-1">Out of {moneyExact(revenue)} collected on all jobs.</p>
+
+      {hasData ? (
+        <>
+          <div className="flex gap-[2px] mt-6 h-11 w-full" role="img"
+               aria-label={`Costs ${moneyExact(cost)}, profit ${moneyExact(profit)} of ${moneyExact(revenue)} revenue`}>
+            <div style={{ width: costPct + '%', background: '#5A6B7F' }}
+                 className="rounded-l-[4px] flex items-center px-3 min-w-[3px]">
+              {costPct >= 26 && <span className="text-white text-sm font-black whitespace-nowrap">{moneyExact(cost)}</span>}
+            </div>
+            <div style={{ width: profitPct + '%', background: '#17976B' }}
+                 className="rounded-r-[4px] flex items-center px-3 min-w-[3px]">
+              {profitPct >= 26 && <span className="text-white text-sm font-black whitespace-nowrap">{moneyExact(profit)}</span>}
+            </div>
+          </div>
+
+          {/* Legend is always present for two series; it also carries the values
+              that were too narrow to sit inside their own segment. */}
+          <div className="flex flex-wrap gap-x-7 gap-y-2 mt-4">
+            <span className="flex items-center gap-2 text-sm font-bold text-ink">
+              <i className="w-3.5 h-3.5 rounded-[3px] inline-block" style={{ background: '#5A6B7F' }} />
+              What it cost to do the work <b className="tnum text-muted">{moneyExact(cost)}</b>
+            </span>
+            <span className="flex items-center gap-2 text-sm font-bold text-ink">
+              <i className="w-3.5 h-3.5 rounded-[3px] inline-block" style={{ background: '#17976B' }} />
+              What the company kept <b className="tnum text-muted">{moneyExact(profit)}</b>
+            </span>
+          </div>
+        </>
+      ) : (
+        <p className="mt-6 text-muted font-bold">Add a job and this bar will show how much you kept.</p>
+      )}
+    </section>
+  );
+}
+
+/* ══════════════════════════ the lead funnel ══════════════════════════ */
+/* Ordered stages, so one hue stepped light → dark, never a rainbow. Three
+   stages is few enough that each bar carries its own value. */
+
+function Funnel({ leads, demos, closes }) {
+  const max = Math.max(leads, demos, closes, 1);
+  const stages = [
+    { label: 'People who called',  value: leads,  color: '#9EB0E4' },
+    { label: 'Roofs we looked at', value: demos,  color: '#4A66C4' },
+    { label: 'Jobs we won',        value: closes, color: '#102D7F' }
+  ];
+  return (
+    <section className="bg-white rounded-3xl card-shadow p-6 sm:p-7">
+      <h3 className="text-xl font-black text-navy">From phone call to signed job</h3>
+      <p className="text-sm text-muted font-semibold mt-1">Every step loses a few. That's normal.</p>
+      <div className="mt-6 space-y-4">
+        {stages.map(s => (
+          <div key={s.label}>
+            <div className="flex justify-between items-baseline mb-1.5">
+              <span className="text-sm font-black text-ink">{s.label}</span>
+              <span className="text-lg font-black tnum text-navy">{s.value.toLocaleString('en-US')}</span>
+            </div>
+            <div className="h-4 w-full bg-shell rounded-[4px]">
+              <div className="h-4 rounded-[4px]" style={{ width: Math.max(0, (s.value / max) * 100) + '%', background: s.color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════ sign in ══════════════════════════ */
+
+function SignIn() {
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const send = async () => {
+    const addr = email.trim();
+    if (!addr) return;
+    setBusy(true); setErr('');
+    const { error } = await sb.auth.signInWithOtp({
+      email: addr,
+      options: { emailRedirectTo: window.location.origin + window.location.pathname }
+    });
+    setBusy(false);
+    if (error) setErr(error.message); else setSent(true);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-5" style={{ background: 'linear-gradient(135deg,#0A1F5C,#102D7F)' }}>
+      <div className="bg-white rounded-3xl lift w-full max-w-xl p-8 sm:p-12 text-center">
+        <img src="sfr-logo.png" alt={COMPANY} className="h-16 sm:h-20 w-auto mx-auto" />
+        <h1 className="text-3xl sm:text-4xl font-black text-navy mt-7 leading-tight">Profit Board</h1>
+
+        {!sent ? (
+          <>
+            <p className="text-lg sm:text-xl font-bold text-ink mt-4 leading-snug">
+              Type your email address.<br />We'll send you a link that signs you in.
+            </p>
+            <p className="text-base font-bold text-muted mt-2">There is no password to remember.</p>
+
+            <div className="mt-8 text-left">
+              <Field label="Your email address" big type="email" value={email} onChange={setEmail}
+                     placeholder="you@example.com" autoFocus />
+            </div>
+
+            {err && <div className="mt-4 text-left"><Banner tone="error">{err}</Banner></div>}
+
+            <Btn tone="orange" size="xl" onClick={send} disabled={busy || !email.trim()} className="w-full mt-6">
+              {busy ? 'Sending…' : 'Send me my sign-in link'}
+            </Btn>
+          </>
+        ) : (
+          <div className="mt-6">
+            <div className="text-7xl" aria-hidden="true">📬</div>
+            <h2 className="text-2xl sm:text-3xl font-black text-money mt-5 leading-tight">Check your email</h2>
+            <p className="text-lg font-bold text-ink mt-4 leading-snug">
+              We just sent a message to<br /><b className="text-navy break-all">{email.trim()}</b>
+            </p>
+            <p className="text-lg font-bold text-ink mt-4 leading-snug">
+              Open it and tap the blue link inside.<br />That's it — you'll be signed in.
+            </p>
+            <p className="text-sm font-bold text-muted mt-5">
+              Don't see it? Look in your junk or spam folder. The link works for one hour.
+            </p>
+            <Btn tone="ghost" size="md" onClick={() => { setSent(false); setErr(''); }} className="mt-7">
+              Use a different email
+            </Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════ setup screen ══════════════════════════ */
+
+function SetupHelp() {
+  return (
+    <div className="min-h-screen p-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#0A1F5C,#102D7F)' }}>
+      <div className="bg-white rounded-3xl lift w-full max-w-2xl p-8 sm:p-11">
+        <img src="sfr-logo.png" alt={COMPANY} className="h-14 w-auto" />
+        <h1 className="text-3xl font-black text-navy mt-6">Turn on sign-in</h1>
+        <p className="text-base font-bold text-muted mt-2">
+          Right now this dashboard saves to this one device only. To let your partners sign in
+          and share the same jobs, do this once:
+        </p>
+        <ol className="mt-6 space-y-3 text-ink font-bold list-decimal pl-5">
+          <li>Go to <span className="text-navy">supabase.com</span> and create a free project.</li>
+          <li>In that project, open <span className="text-navy">SQL Editor</span>, paste in everything
+              from the file <span className="text-navy">supabase-setup.sql</span>, and press Run.</li>
+          <li>Open <span className="text-navy">Settings → API</span> and copy the Project URL and the
+              publishable (anon) key.</li>
+          <li>Paste those two into the file <span className="text-navy">config.js</span>, then reload this page.</li>
+          <li>Sign in once with your email, then run the last line of the SQL file to make yourself the admin.</li>
+        </ol>
+        <div className="mt-7"><Banner tone="info">
+          Until then, everything below still works — it just stays on this device. Use <b>Back up</b> to keep a copy of your data.
+        </Banner></div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════ invoices & receipts ══════════════════════ */
+
+function DocsPanel({ job, docs, onUpload, onDeleteDoc, onOpenDoc, canDelete }) {
+  const [kind, setKind] = useState('receipt');
+  const [label, setLabel] = useState('');
+  const [amount, setAmount] = useState('');
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const inputRef = useRef(null);
+
+  const mine = docs.filter(d => d.job_id === job.id);
+  const total = mine.reduce((a, d) => a + num(d.amount), 0);
+
+  const go = async () => {
+    if (!file) { setErr('Pick a photo or a PDF first.'); return; }
+    setBusy(true); setErr('');
+    try {
+      await onUpload({ job, file, kind, label: label.trim(), amount: num(amount) });
+      setFile(null); setLabel(''); setAmount('');
+      if (inputRef.current) inputRef.current.value = '';
+    } catch (e) { setErr(e.message || 'That upload did not work.'); }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      {!CLOUD && <div className="mb-5"><Banner tone="warn">
+        File uploads need sign-in turned on. Right now there's nowhere to store the file.
+      </Banner></div>}
+
+      <div className="rounded-2xl border-2 border-line p-5">
+        <h3 className="font-black text-navy text-lg">Add a paper to this job</h3>
+
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <label className="block">
+            <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">What is it?</span>
+            <select value={kind} onChange={e => setKind(e.target.value)}
+                    className="w-full rounded-2xl border-2 border-line bg-white px-4 py-3.5 text-lg font-bold text-ink">
+              {DOC_KINDS.map(k => <option key={k.v} value={k.v}>{k.t}</option>)}
+            </select>
+          </label>
+          <Field label="Amount on it" type="number" prefix="$" value={amount} onChange={setAmount} placeholder="0" />
+        </div>
+
+        <div className="mt-4">
+          <Field label="Short note (optional)" value={label} onChange={setLabel} placeholder="ABC Supply — shingles" />
+        </div>
+
+        <div className="mt-4">
+          <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">The photo or PDF</span>
+          <input ref={inputRef} type="file" accept="image/*,application/pdf" disabled={!CLOUD}
+                 onChange={e => setFile(e.target.files && e.target.files[0])}
+                 className="block w-full text-sm font-bold text-ink file:mr-4 file:py-3 file:px-5 file:rounded-xl file:border-0
+                            file:bg-navy file:text-white file:font-black file:cursor-pointer disabled:opacity-40" />
+          <p className="text-xs text-muted font-semibold mt-2">On a phone this lets you take a picture of the receipt.</p>
+        </div>
+
+        {err && <div className="mt-4"><Banner tone="error">{err}</Banner></div>}
+
+        <Btn tone="green" size="lg" onClick={go} disabled={busy || !CLOUD || !file} className="w-full mt-5">
+          {busy ? 'Saving…' : 'Save this paper'}
+        </Btn>
+      </div>
+
+      <div className="mt-6">
+        <div className="flex items-baseline justify-between gap-3 mb-3">
+          <h3 className="font-black text-navy text-lg">Papers on this job</h3>
+          {mine.length > 0 && <span className="font-black text-muted tnum">{mine.length} · {moneyExact(total)}</span>}
+        </div>
+
+        {mine.length === 0 ? (
+          <p className="text-muted font-bold">Nothing attached yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {mine.map(d => (
+              <li key={d.id} className="flex items-center gap-3 bg-shell rounded-2xl px-4 py-3">
+                <span className="text-2xl shrink-0" aria-hidden="true">
+                  {d.kind === 'invoice' ? '🧾' : d.kind === 'permit' ? '📋' : d.kind === 'photo' ? '📷' : '🧾'}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-black text-ink truncate">{d.label || d.file_name || kindLabel(d.kind)}</span>
+                  <span className="block text-xs font-bold text-muted">
+                    {kindLabel(d.kind)}{num(d.amount) > 0 ? ' · ' + moneyExact(d.amount) : ''}
+                  </span>
+                </span>
+                <Btn tone="white" size="sm" onClick={() => onOpenDoc(d)}>Open</Btn>
+                {canDelete(d) && <Btn tone="danger" size="sm" onClick={() => onDeleteDoc(d)}>Delete</Btn>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════ forms ══════════════════════════ */
+
+const EMPTY_JOB = { name: '', squares: '', revenue: '', material: '', labor: '', dumpster: '', done: true };
+
+function JobForm({ initial, onSave, onClose, isAdmin }) {
+  const [f, setF] = useState(initial || EMPTY_JOB);
+  const [busy, setBusy] = useState(false);
+  const set = k => v => setF(prev => ({ ...prev, [k]: v }));
+  const m = jobMetrics(f);
+  const state = marginState(m.margin);
+  const canSave = f.name.trim().length > 0;
+
+  const submit = async () => {
+    setBusy(true);
+    try { await onSave({ ...f }); } finally { setBusy(false); }
+  };
+
+  return (
+    <>
+      <div className="grid gap-4">
+        <Field label="Job name or address" value={f.name} onChange={set('name')} placeholder="12 Maple St — Johnson" autoFocus />
+        <Field label="Squares sold" type="number" value={f.squares} onChange={set('squares')} placeholder="0" hint="1 square = 100 sq ft" />
+
+        {isAdmin && (
+          <>
+            <Field label="Contract revenue" type="number" prefix="$" value={f.revenue} onChange={set('revenue')} placeholder="0" hint="What the customer pays you" />
+            <div className="grid sm:grid-cols-3 gap-4">
+              <Field label="Material cost" type="number" prefix="$" value={f.material} onChange={set('material')} placeholder="0" />
+              <Field label="Labor cost" type="number" prefix="$" value={f.labor} onChange={set('labor')} placeholder="0" />
+              <Field label="Dumpster / permit" type="number" prefix="$" value={f.dumpster} onChange={set('dumpster')} placeholder="0" />
+            </div>
+          </>
+        )}
+
+        <label className="flex items-center gap-3 bg-shell rounded-2xl px-4 py-3.5 cursor-pointer">
+          <input type="checkbox" checked={!!f.done} onChange={e => set('done')(e.target.checked)} className="w-6 h-6 accent-[#0E7A4A]" />
+          <span className="font-black text-navy">Install is finished</span>
+        </label>
+      </div>
+
+      {/* Live math, so the number is never a surprise after saving. */}
+      {isAdmin && (
+        <div className="mt-6 rounded-2xl border-2 border-line overflow-hidden">
+          <div className="grid grid-cols-3 divide-x divide-line bg-white">
+            <Mini label="It cost you" value={moneyExact(m.cost)} />
+            <Mini label="You keep" value={moneyExact(m.profit)} color={m.profit >= 0 ? '#0E7A4A' : '#BE2B1D'} />
+            <Mini label="Margin" value={m.margin === null ? '—' : pct(m.margin)} color={state.color} note={m.margin === null ? '' : state.label} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3 justify-end mt-7">
+        <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn tone="green" size="lg" disabled={!canSave || busy} onClick={submit}>{busy ? 'Saving…' : 'Save job'}</Btn>
+      </div>
+    </>
+  );
+}
+
+const EMPTY_MKT = { label: '', spend: '', leads: '', demos: '', closes: '' };
+
+function MarketingForm({ initial, onSave, onClose }) {
+  const [f, setF] = useState(initial || EMPTY_MKT);
+  const [busy, setBusy] = useState(false);
+  const set = k => v => setF(prev => ({ ...prev, [k]: v }));
+  const cpl = ratio(num(f.spend), num(f.leads));
+  const cac = ratio(num(f.spend), num(f.closes));
+  const canSave = f.label.trim().length > 0;
+
+  const submit = async () => { setBusy(true); try { await onSave({ ...f }); } finally { setBusy(false); } };
+
+  return (
+    <>
+      <div className="grid gap-4">
+        <Field label="What was this spend?" value={f.label} onChange={set('label')} placeholder="Facebook ads — March" autoFocus />
+        <Field label="Total marketing spend" type="number" prefix="$" value={f.spend} onChange={set('spend')} placeholder="0" />
+        <div className="grid sm:grid-cols-3 gap-4">
+          <Field label="Leads received" type="number" value={f.leads} onChange={set('leads')} placeholder="0" hint="People who called" />
+          <Field label="Demos completed" type="number" value={f.demos} onChange={set('demos')} placeholder="0" hint="Roofs you looked at" />
+          <Field label="Closed deals" type="number" value={f.closes} onChange={set('closes')} placeholder="0" hint="Jobs you won" />
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border-2 border-line overflow-hidden">
+        <div className="grid grid-cols-2 divide-x divide-line bg-white">
+          <Mini label="Cost per lead" value={showMoney(cpl)} />
+          <Mini label="Cost per customer" value={showMoney(cac)} color="#9333EA" />
+        </div>
+      </div>
+
+      <div className="flex gap-3 justify-end mt-7">
+        <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn tone="orange" size="lg" disabled={!canSave || busy} onClick={submit}>{busy ? 'Saving…' : 'Save spend'}</Btn>
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════ tables ══════════════════════════ */
+
+function JobsTable({ jobs, docs, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
+  if (!jobs.length) {
+    return (
+      <div className="bg-white rounded-3xl card-shadow p-10 text-center">
+        <div className="text-5xl mb-3" aria-hidden="true">🏠</div>
+        <h3 className="text-2xl font-black text-navy">No jobs yet</h3>
+        <p className="text-muted font-bold mt-2">Hit <b className="text-money">Add New Job</b> and your jobs show up here.</p>
+      </div>
+    );
+  }
+
+  const docCount = id => docs.filter(d => d.job_id === id).length;
+
+  return (
+    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className={'w-full border-collapse ' + (isAdmin ? 'min-w-[1000px]' : 'min-w-[620px]')}>
+          <thead>
+            <tr className="bg-navy text-white text-left">
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em]">Done</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] min-w-[210px]">Job</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Sq</th>
+              {isAdmin && <>
+                <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">They paid</th>
+                <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">It cost</th>
+                <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">You keep</th>
+                <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em]">Margin</th>
+              </>}
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em]">Papers</th>
+              <th className="px-5 py-4"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((j, i) => {
+              const m = jobMetrics(j);
+              const st = marginState(m.margin);
+              const n = docCount(j.id);
+              return (
+                <tr key={j.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
+                  <td className="px-5 py-4">
+                    <button onClick={() => onToggle(j)} aria-pressed={!!j.done}
+                            aria-label={j.done ? `${j.name} is installed` : `${j.name} is not installed yet`}
+                            className="w-9 h-9 rounded-full grid place-items-center text-white text-lg font-black transition"
+                            style={{ background: j.done ? '#0E7A4A' : '#CBD5E1' }}>
+                      {j.done ? '✓' : ''}
+                    </button>
+                  </td>
+                  <td className="px-5 py-4 min-w-[210px]">
+                    <div className="font-black text-ink leading-tight">{j.name}</div>
+                    <div className="text-xs font-bold text-muted mt-0.5">{j.done ? 'Installed' : 'In progress'}</div>
+                  </td>
+                  <td className="px-5 py-4 text-right font-bold tnum text-ink">{num(j.squares) || '—'}</td>
+
+                  {isAdmin && <>
+                    <td className="px-5 py-4 text-right font-bold tnum text-ink">{moneyExact(m.revenue)}</td>
+                    <td className="px-5 py-4 text-right font-bold tnum text-muted">{moneyExact(m.cost)}</td>
+                    <td className="px-5 py-4 text-right font-black tnum" style={{ color: m.profit >= 0 ? '#0E7A4A' : '#BE2B1D' }}>
+                      {moneyExact(m.profit)}
+                    </td>
+                    <td className="px-5 py-4 min-w-[150px]">
+                      {/* Meter: fill carries severity, track is a light step of the
+                          same ramp; the % and the word carry it without colour. */}
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-2.5 w-16 rounded-[4px]" style={{ background: '#E8EDF2' }}>
+                          <div className="h-2.5 rounded-[4px]"
+                               style={{ width: Math.max(0, Math.min(100, m.margin ?? 0)) + '%', background: st.color }} />
+                        </div>
+                        <span className="text-sm font-black tnum" style={{ color: st.color }}>
+                          {m.margin === null ? '—' : pct(m.margin)}
+                        </span>
+                      </div>
+                      <div className="text-[11px] font-bold text-muted mt-1">{st.label}</div>
+                    </td>
+                  </>}
+
+                  <td className="px-5 py-4">
+                    <Btn tone="ghost" size="sm" onClick={() => onPapers(j)}>
+                      🧾 {n > 0 ? n : 'Add'}
+                    </Btn>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex gap-2 justify-end no-print">
+                      <Btn tone="ghost" size="sm" onClick={() => onEdit(j)}>Edit</Btn>
+                      {isAdmin && <Btn tone="danger" size="sm" onClick={() => onDelete(j)}>Delete</Btn>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MarketingTable({ rows, onEdit, onDelete }) {
+  if (!rows.length) {
+    return (
+      <div className="bg-white rounded-3xl card-shadow p-10 text-center">
+        <div className="text-5xl mb-3" aria-hidden="true">📣</div>
+        <h3 className="text-2xl font-black text-navy">No marketing logged yet</h3>
+        <p className="text-muted font-bold mt-2">Hit <b className="text-orange">Add Marketing Spend</b> to see what a customer really costs.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse min-w-[820px]">
+          <thead>
+            <tr className="bg-navy text-white text-left">
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] min-w-[200px]">Spend</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Cost</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Leads</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Demos</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Sales</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Per lead</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] text-right">Per customer</th>
+              <th className="px-5 py-4"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
+                <td className="px-5 py-4 font-black text-ink min-w-[200px]">{r.label}</td>
+                <td className="px-5 py-4 text-right font-bold tnum text-ink">{moneyExact(r.spend)}</td>
+                <td className="px-5 py-4 text-right font-bold tnum text-ink">{num(r.leads).toLocaleString('en-US')}</td>
+                <td className="px-5 py-4 text-right font-bold tnum text-ink">{num(r.demos).toLocaleString('en-US')}</td>
+                <td className="px-5 py-4 text-right font-bold tnum text-ink">{num(r.closes).toLocaleString('en-US')}</td>
+                <td className="px-5 py-4 text-right font-bold tnum text-muted">{showMoney(ratio(num(r.spend), num(r.leads)))}</td>
+                <td className="px-5 py-4 text-right font-black tnum" style={{ color: '#9333EA' }}>
+                  {showMoney(ratio(num(r.spend), num(r.closes)))}
+                </td>
+                <td className="px-5 py-4">
+                  <div className="flex gap-2 justify-end no-print">
+                    <Btn tone="ghost" size="sm" onClick={() => onEdit(r)}>Edit</Btn>
+                    <Btn tone="danger" size="sm" onClick={() => onDelete(r)}>Delete</Btn>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════ team (admin) ══════════════════════════ */
+
+function TeamPanel({ people, meId, onSetRole, busyId }) {
+  return (
+    <div className="bg-white rounded-3xl card-shadow overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse min-w-[620px]">
+          <thead>
+            <tr className="bg-navy text-white text-left">
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em] min-w-[240px]">Person</th>
+              <th className="px-5 py-4 text-xs font-black uppercase tracking-[.07em]">Can see</th>
+              <th className="px-5 py-4"><span className="sr-only">Change</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((p, i) => {
+              const admin = p.role === 'admin';
+              return (
+                <tr key={p.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
+                  <td className="px-5 py-4 min-w-[240px]">
+                    <div className="font-black text-ink">{p.full_name || p.email}</div>
+                    <div className="text-xs font-bold text-muted">{p.email}{p.id === meId ? ' · you' : ''}</div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="inline-block rounded-full px-3 py-1.5 text-xs font-black text-white"
+                          style={{ background: admin ? '#9333EA' : '#5A6B7F' }}>
+                      {admin ? 'Everything, including money' : 'Jobs and papers only'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    {p.id === meId ? (
+                      <span className="text-xs font-bold text-muted">Can't change your own</span>
+                    ) : (
+                      <Btn tone={admin ? 'ghost' : 'navy'} size="sm" disabled={busyId === p.id}
+                           onClick={() => onSetRole(p, admin ? 'crew' : 'admin')}>
+                        {busyId === p.id ? '…' : admin ? 'Make crew' : 'Make admin'}
+                      </Btn>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════ dashboard ══════════════════════════ */
+
+function Dashboard({ session, profile, signOut }) {
+  const isAdmin = !CLOUD || profile?.role === 'admin';
+  const meId = session?.user?.id;
+
+  const [jobs, setJobs] = useState([]);
+  const [mkt, setMkt]   = useState([]);
+  const [docs, setDocs] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [modal, setModal] = useState(null);
+  const [roleBusy, setRoleBusy] = useState(null);
+
+  /* ── load ── */
+  const refresh = useCallback(async () => {
+    setErr('');
+    if (!CLOUD) {
+      setJobs(load(LS_JOBS, [])); setMkt(load(LS_MKT, [])); setDocs([]); setLoading(false);
+      return;
+    }
+    try {
+      const jq = await sb.from('jobs').select('*').order('created_at', { ascending: false });
+      if (jq.error) throw jq.error;
+
+      let merged = jq.data || [];
+      if (isAdmin) {
+        const mq = await sb.from('job_money').select('*');
+        if (mq.error) throw mq.error;
+        const byId = {};
+        (mq.data || []).forEach(r => { byId[r.job_id] = r; });
+        merged = merged.map(j => ({ ...j, ...(byId[j.id] || {}) }));
+
+        const kq = await sb.from('marketing').select('*').order('created_at', { ascending: false });
+        if (kq.error) throw kq.error;
+        setMkt(kq.data || []);
+
+        const pq = await sb.from('profiles').select('*').order('created_at');
+        if (!pq.error) setPeople(pq.data || []);
+      } else {
+        setMkt([]); setPeople([]);
+      }
+      setJobs(merged);
+
+      const dq = await sb.from('documents').select('*').order('created_at', { ascending: false });
+      if (dq.error) throw dq.error;
+      setDocs(dq.data || []);
+    } catch (e) {
+      setErr(e.message || 'Could not load your data.');
+    }
+    setLoading(false);
+  }, [isAdmin]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Local mode keeps writing straight to this device.
+  useEffect(() => { if (!CLOUD) persist(LS_JOBS, jobs); }, [jobs]);
+  useEffect(() => { if (!CLOUD) persist(LS_MKT, mkt); }, [mkt]);
+
+  /* ── totals ── */
+  const totals = useMemo(() => {
+    const t = jobs.reduce((a, j) => {
+      const m = jobMetrics(j);
+      a.revenue += m.revenue; a.cost += m.cost; a.profit += m.profit; a.squares += num(j.squares);
+      if (j.done) a.installed += 1;
+      return a;
+    }, { revenue: 0, cost: 0, profit: 0, squares: 0, installed: 0 });
+    t.margin = t.revenue > 0 ? (t.profit / t.revenue) * 100 : null;
+    return t;
+  }, [jobs]);
+
+  const m = useMemo(() => {
+    const s = mkt.reduce((a, r) => {
+      a.spend += num(r.spend); a.leads += num(r.leads); a.demos += num(r.demos); a.closes += num(r.closes);
+      return a;
+    }, { spend: 0, leads: 0, demos: 0, closes: 0 });
+    return {
+      ...s,
+      demoRate:     s.leads > 0 ? (s.demos / s.leads) * 100  : null,
+      closeRate:    s.demos > 0 ? (s.closes / s.demos) * 100 : null,
+      cpl:          ratio(s.spend, s.leads),
+      cac:          ratio(s.spend, s.closes),
+      valuePerLead: ratio(totals.revenue, s.leads)
+    };
+  }, [mkt, totals.revenue]);
+
+  // Average profit per logged job — the honest counterweight to CAC.
+  const avgJobProfit = jobs.length ? totals.profit / jobs.length : null;
+
+  /* ── job writes ── */
+  const saveJob = async row => {
+    if (!CLOUD) {
+      const withId = { ...row, id: row.id || uid(), createdAt: row.createdAt || Date.now() };
+      setJobs(p => (p.some(x => x.id === withId.id) ? p.map(x => (x.id === withId.id ? withId : x)) : [withId, ...p]));
+      setModal(null); return;
+    }
+    try {
+      const base = { name: row.name.trim(), squares: num(row.squares), done: !!row.done };
+      let id = row.id;
+      if (id) {
+        const r = await sb.from('jobs').update(base).eq('id', id);
+        if (r.error) throw r.error;
+      } else {
+        const r = await sb.from('jobs').insert({ ...base, created_by: meId }).select().single();
+        if (r.error) throw r.error;
+        id = r.data.id;
+      }
+      // Money lives in its own admin-only table; crew never sends these.
+      if (isAdmin) {
+        const mr = await sb.from('job_money').upsert({
+          job_id: id, revenue: num(row.revenue), material: num(row.material),
+          labor: num(row.labor), dumpster: num(row.dumpster)
+        });
+        if (mr.error) throw mr.error;
+      }
+      setModal(null);
+      await refresh();
+    } catch (e) { setErr(e.message || 'Could not save that job.'); }
+  };
+
+  const toggleJob = async j => {
+    if (!CLOUD) { setJobs(p => p.map(x => (x.id === j.id ? { ...x, done: !x.done } : x))); return; }
+    setJobs(p => p.map(x => (x.id === j.id ? { ...x, done: !x.done } : x))); // optimistic
+    const r = await sb.from('jobs').update({ done: !j.done }).eq('id', j.id);
+    if (r.error) { setErr(r.error.message); refresh(); }
+  };
+
+  const delJob = async j => {
+    if (!window.confirm(`Delete "${j.name}"? This also deletes its papers. This cannot be undone.`)) return;
+    if (!CLOUD) { setJobs(p => p.filter(x => x.id !== j.id)); return; }
+    const r = await sb.from('jobs').delete().eq('id', j.id);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
+  /* ── marketing writes ── */
+  const saveMkt = async row => {
+    if (!CLOUD) {
+      const withId = { ...row, id: row.id || uid(), createdAt: row.createdAt || Date.now() };
+      setMkt(p => (p.some(x => x.id === withId.id) ? p.map(x => (x.id === withId.id ? withId : x)) : [withId, ...p]));
+      setModal(null); return;
+    }
+    try {
+      const base = {
+        label: row.label.trim(), spend: num(row.spend), leads: num(row.leads),
+        demos: num(row.demos), closes: num(row.closes)
+      };
+      const r = row.id
+        ? await sb.from('marketing').update(base).eq('id', row.id)
+        : await sb.from('marketing').insert({ ...base, created_by: meId });
+      if (r.error) throw r.error;
+      setModal(null);
+      await refresh();
+    } catch (e) { setErr(e.message || 'Could not save that spend.'); }
+  };
+
+  const delMkt = async r0 => {
+    if (!window.confirm(`Delete "${r0.label}"? This cannot be undone.`)) return;
+    if (!CLOUD) { setMkt(p => p.filter(x => x.id !== r0.id)); return; }
+    const r = await sb.from('marketing').delete().eq('id', r0.id);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
+  /* ── documents ── */
+  const uploadDoc = async ({ job, file, kind, label, amount }) => {
+    const path = `${job.id}/${Date.now()}-${safeName(file.name)}`;
+    const up = await sb.storage.from('job-docs').upload(path, file, { upsert: false });
+    if (up.error) throw up.error;
+    const ins = await sb.from('documents').insert({
+      job_id: job.id, kind, label, amount, storage_path: path,
+      file_name: file.name, uploaded_by: meId
+    });
+    if (ins.error) throw ins.error;
+    await refresh();
+  };
+
+  const openDoc = async d => {
+    const r = await sb.storage.from('job-docs').createSignedUrl(d.storage_path, 3600);
+    if (r.error) { setErr(r.error.message); return; }
+    window.open(r.data.signedUrl, '_blank', 'noopener');
+  };
+
+  const deleteDoc = async d => {
+    if (!window.confirm('Delete this paper? This cannot be undone.')) return;
+    await sb.storage.from('job-docs').remove([d.storage_path]);
+    const r = await sb.from('documents').delete().eq('id', d.id);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
+  const canDeleteDoc = d => isAdmin || d.uploaded_by === meId;
+
+  /* ── team ── */
+  const setRole = async (p, role) => {
+    setRoleBusy(p.id);
+    const r = await sb.from('profiles').update({ role }).eq('id', p.id);
+    setRoleBusy(null);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
+  /* ── backup (local mode) ── */
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify({ app: 'sfr-profit-board', version: 1, exportedAt: new Date().toISOString(), jobs, marketing: mkt }, null, 2)],
+                          { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `square-foot-profit-board-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const papersJob = modal?.kind === 'docs' ? jobs.find(j => j.id === modal.row.id) : null;
+
+  if (loading) {
+    return <div className="min-h-screen grid place-items-center">
+      <p className="text-xl font-black text-navy">Loading your numbers…</p>
+    </div>;
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* ── header ── */}
+      <header className="sticky top-0 z-40 bg-navy text-white shadow-lg no-print">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-7 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4 min-w-0">
+            <img src="sfr-logo-reversed.png" alt={COMPANY} className="h-11 sm:h-14 w-auto object-contain shrink-0" />
+            <div className="border-l border-white/25 pl-4 hidden sm:block">
+              <div className="text-lg font-black uppercase tracking-[.1em] leading-none">Profit Board</div>
+              <div className="text-[11px] font-bold uppercase tracking-[.13em] opacity-75 mt-1">
+                {CLOUD ? (isAdmin ? 'Admin — sees everything' : 'Crew — jobs and papers') : 'This device only'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {!CLOUD && <Btn tone="ghost" size="sm" onClick={exportData} className="!bg-white/15 !text-white hover:!bg-white/25">Back up</Btn>}
+            {CLOUD && (
+              <>
+                <span className="hidden md:block text-xs font-bold opacity-80 max-w-[200px] truncate">{session?.user?.email}</span>
+                <Btn tone="ghost" size="sm" onClick={signOut} className="!bg-white/15 !text-white hover:!bg-white/25">Sign out</Btn>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-7 py-7 space-y-7">
+
+        {err && <Banner tone="error">{err}</Banner>}
+        {!CLOUD && <Banner tone="warn">
+          Saving to this device only — your partners can't see this yet. Open <b>config.js</b> to turn on sign-in.
+        </Banner>}
+
+        {/* ── the buttons that run the whole thing ── */}
+        <div className="flex flex-wrap gap-3 no-print">
+          <Btn tone="green" size="lg" onClick={() => setModal({ kind: 'job' })} className="flex-1 sm:flex-none min-w-[220px]">
+            ＋ Add New Job
+          </Btn>
+          {isAdmin && (
+            <Btn tone="orange" size="lg" onClick={() => setModal({ kind: 'mkt' })} className="flex-1 sm:flex-none min-w-[220px]">
+              ＋ Add Marketing Spend
+            </Btn>
+          )}
+        </div>
+
+        {/* ── the four numbers (admin only) ── */}
+        {isAdmin ? (
+          <>
+            <section>
+              <h2 className="sr-only">Headline numbers</h2>
+              <div className="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                <BigCard bg="#0E7A4A" ink="#FFFFFF" icon="💰"
+                         label="Total Money Made (Profit)"
+                         value={money(totals.profit)}
+                         sub={totals.revenue > 0 ? `You kept ${pct(totals.margin)} of every dollar.` : 'Add a job to start counting.'} />
+                <BigCard bg="#102D7F" ink="#FFFFFF" icon="📞"
+                         label="Every Lead Is Worth"
+                         value={showMoney(m.valuePerLead)}
+                         sub={m.valuePerLead === null ? 'Log leads to see this.' : `Each of your ${m.leads.toLocaleString('en-US')} leads.`} />
+                <BigCard bg="#9333EA" ink="#FFFFFF" icon="🎯"
+                         label="Cost To Get 1 Customer"
+                         value={showMoney(m.cac)}
+                         sub={m.cac === null ? 'Log closed deals to see this.' : 'Marketing spend per signed job.'} />
+                <BigCard bg="#F6821F" ink="#0A1F5C" icon="🤝"
+                         label="Close Rate"
+                         value={showPct(m.closeRate)}
+                         sub={m.closeRate === null ? 'Log demos to see this.' : `You win ${Math.round(m.closeRate)} of every 100 roofs you look at.`} />
+              </div>
+            </section>
+
+            {/* ── target spend guide ── */}
+            <section className="rounded-3xl p-6 sm:p-8 lift" style={{ background: 'linear-gradient(135deg,#0A1F5C,#102D7F)' }}>
+              <div className="flex items-start gap-4 flex-wrap">
+                <span className="text-4xl leading-none" aria-hidden="true">📌</span>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-black uppercase tracking-[.14em] text-orange">Target spend guide</div>
+                  {m.cac === null ? (
+                    <p className="text-white text-xl sm:text-2xl font-black mt-2 leading-snug">
+                      Log your marketing spend and closed deals, and this will tell you exactly what to spend.
+                    </p>
+                  ) : (
+                    <p className="text-white font-black mt-2 leading-tight" style={{ fontSize: 'clamp(1.35rem, 3.4vw, 2.1rem)' }}>
+                      To get 1 new customer, you need to spend <span className="text-orange">{moneyExact(m.cac)}</span> in marketing.
+                    </p>
+                  )}
+                  {/* Compare like with like: the profit an average logged job makes
+                      against what it costs to buy a customer. */}
+                  {m.cac !== null && avgJobProfit !== null && (
+                    <p className="text-white/80 font-bold mt-3 text-sm sm:text-base">
+                      {avgJobProfit > m.cac
+                        ? `Good news — an average job makes you ${moneyExact(avgJobProfit)} in profit, more than the ${moneyExact(m.cac)} it costs to get one.`
+                        : `Careful — an average job makes you ${moneyExact(avgJobProfit)} in profit, less than the ${moneyExact(m.cac)} it costs to get one.`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-2xl font-black text-navy mb-4">The company, all time</h2>
+              <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+                <Tile label="Money in" value={money(totals.revenue)} sub="All contracts" />
+                <Tile label="Money out" value={money(totals.cost + m.spend)} sub="Job costs + marketing" />
+                <Tile label="Jobs installed" value={`${totals.installed} / ${jobs.length}`} sub="Green checks below" />
+                <Tile label="Squares sold" value={totals.squares.toLocaleString('en-US')} sub="1 square = 100 sq ft" />
+              </div>
+            </section>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <MoneySplit revenue={totals.revenue} cost={totals.cost} profit={totals.profit} />
+              <Funnel leads={m.leads} demos={m.demos} closes={m.closes} />
+            </div>
+
+            <section>
+              <h2 className="text-2xl font-black text-navy mb-4">Marketing, in plain numbers</h2>
+              <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+                <Tile label="Cost per lead" value={showMoney(m.cpl)} sub="To make the phone ring once" />
+                <Tile label="Demo rate" value={showPct(m.demoRate)} sub="Calls that became appointments" />
+                <Tile label="Close rate" value={showPct(m.closeRate)} sub="Appointments that became jobs" />
+                <Tile label="Marketing spent" value={money(m.spend)} sub="All campaigns" />
+              </div>
+            </section>
+          </>
+        ) : (
+          /* Crew view — no money anywhere, and the database backs that up. */
+          <section>
+            <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
+              <Tile label="Jobs installed" value={`${totals.installed} / ${jobs.length}`} sub="Green checks below" />
+              <Tile label="Squares sold" value={totals.squares.toLocaleString('en-US')} sub="1 square = 100 sq ft" />
+              <Tile label="Papers on file" value={docs.length.toLocaleString('en-US')} sub="Invoices and receipts" />
+            </div>
+            <div className="mt-5"><Banner tone="info">
+              You're signed in as crew. Add jobs, tick them off when the install is done, and snap a
+              picture of every invoice and receipt. The money side is your admin's view.
+            </Banner></div>
+          </section>
+        )}
+
+        {/* ── jobs ── */}
+        <section>
+          <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+            <h2 className="text-2xl font-black text-navy">Every job</h2>
+            <Btn tone="green" size="sm" onClick={() => setModal({ kind: 'job' })} className="no-print">＋ Add job</Btn>
+          </div>
+          <JobsTable jobs={jobs} docs={docs} isAdmin={isAdmin}
+                     onToggle={toggleJob}
+                     onEdit={row => setModal({ kind: 'job', row })}
+                     onDelete={delJob}
+                     onPapers={row => setModal({ kind: 'docs', row })} />
+        </section>
+
+        {/* ── marketing ── */}
+        {isAdmin && (
+          <section>
+            <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+              <h2 className="text-2xl font-black text-navy">Every marketing spend</h2>
+              <Btn tone="orange" size="sm" onClick={() => setModal({ kind: 'mkt' })} className="no-print">＋ Add spend</Btn>
+            </div>
+            <MarketingTable rows={mkt} onEdit={row => setModal({ kind: 'mkt', row })} onDelete={delMkt} />
+          </section>
+        )}
+
+        {/* ── team ── */}
+        {CLOUD && isAdmin && people.length > 0 && (
+          <section>
+            <h2 className="text-2xl font-black text-navy mb-4">Who can get in</h2>
+            <TeamPanel people={people} meId={meId} onSetRole={setRole} busyId={roleBusy} />
+            <p className="text-xs font-bold text-muted mt-3">
+              Anyone who signs in starts as crew. Make someone admin and they'll see the money too.
+            </p>
+          </section>
+        )}
+
+        <footer className="py-8 text-center">
+          <img src="sfr-logo.png" alt="" className="h-12 w-auto mx-auto opacity-70" />
+          <p className="text-xs font-bold text-muted mt-3">
+            Profit Board · {COMPANY}
+            {CLOUD ? ' — shared with everyone who signs in.' : ' — saved in this browser only. Use Back up to keep a copy.'}
+          </p>
+        </footer>
+      </main>
+
+      {modal?.kind === 'job' && (
+        <Modal title={modal.row ? 'Edit job' : 'Add new job'}
+               subtitle={isAdmin ? 'Fill in what they paid and what it cost you.' : 'Name the job so everyone can find it.'}
+               onClose={() => setModal(null)}>
+          <JobForm initial={modal.row} isAdmin={isAdmin} onSave={saveJob} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.kind === 'mkt' && (
+        <Modal title={modal.row ? 'Edit marketing spend' : 'Add marketing spend'} subtitle="What you spent, and what it brought in."
+               onClose={() => setModal(null)}>
+          <MarketingForm initial={modal.row} onSave={saveMkt} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.kind === 'docs' && papersJob && (
+        <Modal wide title="Invoices & receipts" subtitle={papersJob.name} onClose={() => setModal(null)}>
+          <DocsPanel job={papersJob} docs={docs} onUpload={uploadDoc} onOpenDoc={openDoc}
+                     onDeleteDoc={deleteDoc} canDelete={canDeleteDoc} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════ app shell ══════════════════════════ */
+
+function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [ready, setReady] = useState(!CLOUD);
+
+  useEffect(() => {
+    if (!CLOUD) return;
+    let alive = true;
+    sb.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setSession(data.session);
+      setReady(true);
+    });
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => { setSession(s); setReady(true); });
+    return () => { alive = false; sub.subscription.unsubscribe(); };
+  }, []);
+
+  // Pull the caller's role once they're signed in.
+  useEffect(() => {
+    if (!CLOUD || !session) { setProfile(null); return; }
+    let alive = true;
+    sb.from('profiles').select('*').eq('id', session.user.id).single().then(({ data }) => {
+      if (alive) setProfile(data || { role: 'crew' });
+    });
+    return () => { alive = false; };
+  }, [session]);
+
+  const signOut = async () => { await sb.auth.signOut(); setProfile(null); };
+
+  if (!CLOUD) {
+    // No backend configured: run on this device, but explain how to share.
+    return <Dashboard session={null} profile={{ role: 'admin' }} signOut={() => {}} />;
+  }
+  if (!ready)   return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-navy">Starting up…</p></div>;
+  if (!session) return <SignIn />;
+  if (!profile) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-navy">Signing you in…</p></div>;
+
+  return <Dashboard session={session} profile={profile} signOut={signOut} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+  }
+</script>
+</body>
+</html>

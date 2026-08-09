@@ -1,0 +1,16 @@
+{
+  "name": "Profit Board — Square Foot Roofing",
+  "short_name": "Profit Board",
+  "description": "Job costing, profit and marketing ROI dashboard for Square Foot Roofing",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EEF2F6",
+  "theme_color": "#203C8B",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

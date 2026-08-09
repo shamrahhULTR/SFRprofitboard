@@ -1,0 +1,29 @@
+[build]
+  publish = "."
+  command = ""
+
+# The app is a single static page — no build step, no framework.
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    # Carries the Supabase URL + key. Never let a CDN or browser pin an old copy,
+    # or changing the key silently does nothing.
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
