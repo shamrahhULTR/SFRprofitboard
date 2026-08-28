@@ -22,6 +22,11 @@
     Cache-Control = "no-cache"
 
 [[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
   for = "/*.png"
   [headers.values]
     # Icons change when the brand changes; always check with the server first.

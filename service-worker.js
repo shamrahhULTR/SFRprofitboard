@@ -4,7 +4,7 @@
    reload when a new worker takes over causes the double-reload we hit on the
    roof planner. */
 
-const CACHE = 'sfr-profit-board-v6';
+const CACHE = 'sfr-profit-board-v7';
 
 const SHELL = [
   './',
@@ -89,7 +89,26 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Everything else: cache first, then fill the cache in the background.
+  // Code (JS) is ALWAYS network-first: cache-first here meant a deploy never
+  // reached a browser that had an old copy — the exact half-old, half-new page
+  // this rewrite fixes. The cache is only the offline fallback now.
+  const isCode = sameOrigin && /\.(js|html)($|\?)/.test(url.pathname + url.search);
+  if (isCode) {
+    event.respondWith(
+      fetch(request)
+        .then(res => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(request, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Images, fonts and CDN libraries: cache first, refresh in the background.
   event.respondWith(
     caches.match(request).then(cached => {
       const network = fetch(request)
