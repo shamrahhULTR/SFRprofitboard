@@ -18,6 +18,7 @@ const LS_MKT  = 'sfr_pb_mkt_v1';
 const LS_EXP  = 'sfr_pb_exp_v1';
 const LS_REV  = 'sfr_pb_rev_v1';
 const LS_QUEUE = 'sfr_pb_queue_v1';   // offline expense capture
+const LS_BILLS = 'sfr_pb_bills_v1';   // fixed monthly costs (rent, comp, warranty)
 
 function load(key, fallback) {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
@@ -222,6 +223,55 @@ function ttmFrom(series) {
     revenue: a.revenue + m.revenue, grossProfit: a.grossProfit + m.grossProfit,
     ebitda: a.ebitda + m.ebitda, netProfit: a.netProfit + m.netProfit
   }), { revenue: 0, grossProfit: 0, ebitda: 0, netProfit: 0 });
+}
+
+/* ═══════════ fixed costs (monthly bills) ═══════════
+   Rent, workers comp, warranty, insurance: set once, they come out every
+   month on their own. Weekly and annual bills are converted to their monthly
+   equivalent so the P&L feels them evenly. */
+
+const BILL_FREQS = [
+  { v: 'monthly',   t: 'Every month' },
+  { v: 'weekly',    t: 'Every week' },
+  { v: 'quarterly', t: 'Every 3 months' },
+  { v: 'annual',    t: 'Once a year' }
+];
+
+function monthlyEquivalent(bill) {
+  const a = num(bill.amount);
+  switch (bill.frequency) {
+    case 'weekly':    return a * 52 / 12;
+    case 'quarterly': return a / 3;
+    case 'annual':    return a / 12;
+    default:          return a;
+  }
+}
+
+/* One synthesized expense per month, dated the 1st, from the bill's start
+   month through the current month. They flow through the same P&L as any
+   logged expense, so nothing special-cases them downstream. */
+function billsAsExpenses(bills) {
+  const rows = [];
+  const now = new Date();
+  (bills || []).forEach(b => {
+    if (b.is_active === false) return;
+    const startKey = monthKey(b.starts_on || b.created_at || todayISO());
+    let [y, m] = startKey.split('-').map(Number);
+    if (!y || !m) return;
+    let guard = 0;
+    while ((y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)) && guard++ < 120) {
+      rows.push({
+        id: `bill-${b.id}-${y}-${m}`,
+        amount: monthlyEquivalent(b),
+        category_id: b.category_id,
+        vendor: b.name,
+        date: `${y}-${String(m).padStart(2, '0')}-01`,
+        _bill: true
+      });
+      m++; if (m > 12) { m = 1; y++; }
+    }
+  });
+  return rows;
 }
 
 const DOC_KINDS = [
