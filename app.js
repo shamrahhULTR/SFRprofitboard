@@ -497,7 +497,7 @@ function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelet
   );
 }
 
-const EMPTY_JOB = { name: '', squares: '', contract_total: '', done: true, lead_source: '' };
+const EMPTY_JOB = { name: '', squares: '', contract_total: '', material: '', labor: '', dumpster: '', done: true, lead_source: '' };
 
 function JobForm({ initial, onSave, onClose, isAdmin }) {
   const [f, setF] = useState(initial ? { ...initial } : EMPTY_JOB);
@@ -522,6 +522,34 @@ function JobForm({ initial, onSave, onClose, isAdmin }) {
             <Select label="How are they paying?" value={f.payment_type || ''} onChange={set('payment_type')}
                     options={[{ v: '', t: 'Not set' }, { v: 'cash', t: 'Cash' }, { v: 'check', t: 'Check' }, { v: 'financed', t: 'Financed' }]} />
           </div>
+        )}
+
+        {/* What the job cost. These live on the job itself; anything you also
+            log against this job through the + button adds on top. */}
+        {isAdmin && (
+          <>
+            <div className="grid sm:grid-cols-3 gap-4">
+              <Field label="Material cost" type="number" prefix="$" value={f.material || ''} onChange={set('material')} placeholder="0" />
+              <Field label="Labor / subs" type="number" prefix="$" value={f.labor || ''} onChange={set('labor')} placeholder="0" />
+              <Field label="Dumpster / permit" type="number" prefix="$" value={f.dumpster || ''} onChange={set('dumpster')} placeholder="0" />
+            </div>
+
+            {/* Live math, so the number is never a surprise after saving. */}
+            {(() => {
+              const m = jobMetrics(f);
+              const st = marginState(m.margin);
+              return (
+                <div className="rounded-2xl border-2 border-line overflow-hidden">
+                  <div className="grid grid-cols-3 divide-x divide-line">
+                    <Mini label="It cost you" value={moneyExact(m.cost)} />
+                    <Mini label="You keep" value={moneyExact(m.profit)} color={m.profit >= 0 ? '#3DDC84' : '#FF6B6B'} />
+                    <Mini label="Margin" value={m.margin === null ? '—' : pct(m.margin)} color={st.color}
+                          note={m.margin === null ? '' : st.label} />
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         )}
         <label className="flex items-center gap-3 bg-shell rounded-2xl px-4 py-3.5 cursor-pointer">
           <input type="checkbox" checked={!!f.done} onChange={e => set('done')(e.target.checked)} className="w-6 h-6 accent-[#3DDC84]" />

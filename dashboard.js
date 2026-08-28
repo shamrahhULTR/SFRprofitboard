@@ -222,8 +222,12 @@ function Dashboard({ session, profile, signOut }) {
       valuePerLead: ratio(pl.revenue, s.leads) };
   }, [mkt, pl.revenue]);
 
+  // Costs logged against a job through the + button. Deliberately excludes the
+  // synthesized legacy rows: jobMetrics already counts the job's own
+  // material/labor/dumpster, so including them here double-counted every job.
   const expensesForJob = useCallback(id =>
-    allExpenses.filter(e => e.job_id === id && bucketOf(e, categories).bucket === 'job_cost')
+    allExpenses.filter(e => e.job_id === id && !e._legacy && !e._bill
+                         && bucketOf(e, categories).bucket === 'job_cost')
                .reduce((a, e) => a + num(e.amount), 0), [allExpenses, categories]);
 
   /* ── expense writes ── */
@@ -301,7 +305,19 @@ function Dashboard({ session, profile, signOut }) {
       if (id) { const r = await sb.from('jobs').update(base).eq('id', id); if (r.error) throw r.error; }
       else { const r = await sb.from('jobs').insert({ ...base, created_by: meId }).select().single();
              if (r.error) throw r.error; id = r.data.id; }
-      if (isAdmin) await sb.from('job_money').upsert({ job_id: id, revenue: num(row.contract_total) });
+      // Write ALL the money, not just revenue. Upserting revenue alone reset
+      // material/labor/dumpster to 0 on every edit, which is what wiped the
+      // job costs and left gross profit equal to revenue.
+      if (isAdmin) {
+        const mr = await sb.from('job_money').upsert({
+          job_id: id,
+          revenue:  num(row.contract_total),
+          material: num(row.material),
+          labor:    num(row.labor),
+          dumpster: num(row.dumpster)
+        });
+        if (mr.error) throw mr.error;
+      }
       setModal(null); await refresh();
     } catch (e) { setErr(e.message || 'Could not save that job.'); }
   };
