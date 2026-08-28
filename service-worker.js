@@ -4,11 +4,15 @@
    reload when a new worker takes over causes the double-reload we hit on the
    roof planner. */
 
-const CACHE = 'sfr-profit-board-v3';
+const CACHE = 'sfr-profit-board-v5';
 
 const SHELL = [
   './',
   './index.html',
+  './core.js',
+  './charts.js',
+  './app.js',
+  './dashboard.js',
   './manifest.webmanifest',
   './icon.svg',
   './favicon.png?v=2',
@@ -21,6 +25,7 @@ const SHELL = [
 const RUNTIME_HOSTS = [
   'unpkg.com',
   'cdn.tailwindcss.com',
+  'cdn.jsdelivr.net',
   'fonts.googleapis.com',
   'fonts.gstatic.com'
 ];
