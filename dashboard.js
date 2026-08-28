@@ -79,8 +79,10 @@ function Dashboard({ session, profile, signOut }) {
   const [roleBusy, setRoleBusy] = useState(null);
   const [growth, setGrowth] = useState('current');
   const [metric, setMetric] = useState('revenue');
-  const [range, setRange] = useState(12);
+  const [range, setRange] = useState(90);
   const [pieJob, setPieJob] = useState('');
+  const [grain, setGrain] = useState('day');
+  const [running, setRunning] = useState(true);
 
   /* ── load ── */
   const refresh = useCallback(async () => {
@@ -180,6 +182,12 @@ function Dashboard({ session, profile, signOut }) {
   const pl = useMemo(() => computePL(revenueRows, allExpenses, categories,
     depreciationForMonth(assets, monthKey(todayISO()))), [revenueRows, allExpenses, categories, assets]);
   const series = useMemo(() => monthlySeries(revenueRows, allExpenses, categories, depFor), [revenueRows, allExpenses, categories, depFor]);
+
+  // What the stock chart plots: day-by-day or month-by-month, and either the
+  // running total (climbs like a share price) or the value for that period.
+  const chartPer = useMemo(() => periodSeries(revenueRows, allExpenses, categories, depFor, grain),
+    [revenueRows, allExpenses, categories, depFor, grain]);
+  const chartSeries = useMemo(() => (running ? cumulative(chartPer) : chartPer), [chartPer, running]);
   const ttm = useMemo(() => ttmFrom(series), [series]);
 
   const totals = useMemo(() => jobs.reduce((a, j) => {
@@ -397,6 +405,15 @@ function Dashboard({ session, profile, signOut }) {
                          foot="After tax, interest, depreciation and draws" />
               </div>
 
+              {pl.operating === 0 && pl.draws === 0 && pl.revenue > 0 && (
+                <Banner tone="warn">
+                  <b>Gross profit, EBITDA and Net profit are all the same right now</b> because no
+                  overhead has been logged yet. Rent, insurance, fuel, wages, ads and owner draws
+                  all come out below gross profit. Add them with the orange + button and these
+                  three numbers will separate, which is the whole point of the board.
+                </Banner>
+              )}
+
               <Banner tone="info">
                 <b>EBITDA excludes owner draws</b>, that's what makes it comparable to other companies.
                 But when the owners also sell the jobs, it overstates what a buyer would actually earn,
@@ -445,8 +462,9 @@ function Dashboard({ session, profile, signOut }) {
           {/* ── CHARTS ── */}
           {tab === 'charts' && isAdmin && (
             <div className="grid gap-5">
-              <StockChart series={series} metric={metric} setMetric={setMetric}
-                          range={range} setRange={setRange} growth={growth} setGrowth={setGrowth} />
+              <StockChart series={chartSeries} perSeries={chartPer} metric={metric} setMetric={setMetric}
+                          range={range} setRange={setRange} growth={growth} setGrowth={setGrowth}
+                          grain={grain} setGrain={setGrain} running={running} setRunning={setRunning} />
               <div className="grid gap-5 lg:grid-cols-2">
                 <SpendPie pl={pl} />
                 <MonthlyBars series={series} />

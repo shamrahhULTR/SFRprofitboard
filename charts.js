@@ -137,7 +137,8 @@ function MonthlyBars({ series }) {
    One headline figure, one filled line, almost no chrome. A range switcher
    picks the window; a metric switcher picks which line, so it stays one
    scale and one series rather than four fighting for attention. */
-function StockChart({ series, metric, setMetric, range, setRange, growth, setGrowth }) {
+function StockChart({ series, perSeries, metric, setMetric, range, setRange, growth, setGrowth,
+                      grain, setGrain, running, setRunning }) {
   if (!RC.AreaChart || !series.length) return null;
   const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, defs } = RC;
 
@@ -147,26 +148,39 @@ function StockChart({ series, metric, setMetric, range, setRange, growth, setGro
     { v: 'ebitda',      t: 'EBITDA',       color: '#9333EA' },
     { v: 'netProfit',   t: 'Net profit',   color: '#B4620A' }
   ];
-  const RANGES = [{ v: 3, t: '3M' }, { v: 6, t: '6M' }, { v: 12, t: '1Y' }, { v: 0, t: 'All' }];
+  const RANGES = grain === 'day'
+    ? [{ v: 30, t: '30D' }, { v: 90, t: '90D' }, { v: 365, t: '1Y' }, { v: 0, t: 'All' }]
+    : [{ v: 3, t: '3M' }, { v: 6, t: '6M' }, { v: 12, t: '1Y' }, { v: 0, t: 'All' }];
   const mm = METRICS.find(x => x.v === metric) || METRICS[0];
 
   const windowed = range ? series.slice(-range) : series;
-  const rate = { conservative: 0, current: growthRate(series), aggressive: growthRate(series) * 2 }[growth] || 0;
+
+  // Pace comes from the raw per-period values, never the cumulative line.
+  const per = perSeries && perSeries.length ? perSeries : series;
+  const lastN = per.slice(-30);
+  const recentPace = lastN.length
+    ? lastN.reduce((a, m) => a + (m[metric] || 0), 0) / lastN.length
+    : 0;
+  const mult = { conservative: 0.5, current: 1, aggressive: 2 }[growth] || 1;
+  const pace = recentPace * mult;   // average gain per period at the chosen assumption
 
   const hist = windowed.map(m => ({ label: m.label, value: Math.round(m[metric]), projected: null }));
 
-  // Projection to year end. Dashed, labelled, and driven by a control the user
-  // can see, so it never reads as a promise.
-  const monthsLeft = Math.max(12 - (new Date().getMonth() + 1), 0);
   const proj = [];
   let cur = (series[series.length - 1] || {})[metric] || 0;
-  for (let i = 1; i <= monthsLeft; i++) {
-    cur = cur * (1 + rate);
-    const d = new Date(); d.setMonth(d.getMonth() + i);
-    proj.push({ label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-                value: null, projected: Math.round(cur) });
+  const stepsLeft = grain === 'day'
+    ? Math.min(Math.max(Math.round((new Date(new Date().getFullYear(), 11, 31) - new Date()) / 86400000), 0), 200)
+    : Math.max(12 - (new Date().getMonth() + 1), 0);
+  for (let i = 1; i <= stepsLeft; i++) {
+    cur = running ? cur + pace : pace;   // running: keeps climbing; per-period: the expected value each period
+    const d = new Date();
+    if (grain === 'day') d.setDate(d.getDate() + i); else d.setMonth(d.getMonth() + i);
+    proj.push({
+      label: grain === 'day' ? dayLabel(d.toISOString().slice(0, 10))
+                             : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      value: null, projected: Math.round(cur)
+    });
   }
-  // Join the two lines so there is no visual gap at the handover.
   if (hist.length && proj.length) hist[hist.length - 1].projected = hist[hist.length - 1].value;
 
   const data = [...hist, ...proj];
@@ -179,7 +193,7 @@ function StockChart({ series, metric, setMetric, range, setRange, growth, setGro
     <section className="bg-white rounded-3xl card-shadow p-5 sm:p-7">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
-          <div className="text-[11px] font-black uppercase tracking-[.1em] text-muted">{mm.t}, this month</div>
+          <div className="text-[11px] font-black uppercase tracking-[.1em] text-muted">{mm.t}{running ? ', all time so far' : grain === 'day' ? ', latest day' : ', this month'}</div>
           <div className="figure font-black leading-none mt-1" style={{ fontSize: 'clamp(2.2rem,6vw,3.2rem)', color: mm.color }}>
             {money(latest)}
           </div>
@@ -189,7 +203,19 @@ function StockChart({ series, metric, setMetric, range, setRange, growth, setGro
             </div>
           )}
         </div>
-        <div className="flex gap-1.5 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap justify-end">
+          <div className="flex gap-1.5 w-full justify-end mb-1">
+            {[{ v: 'day', t: 'Day by day' }, { v: 'month', t: 'Month by month' }].map(o => (
+              <button key={o.v} onClick={() => { setGrain(o.v); setRange(o.v === 'day' ? 90 : 12); }}
+                className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
+                  (grain === o.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line')}>{o.t}</button>
+            ))}
+            <button onClick={() => setRunning(!running)}
+              className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
+                (running ? 'bg-money text-white border-money' : 'bg-white text-navy border-line')}>
+              {running ? 'Running total' : 'Per day'}
+            </button>
+          </div>
           {RANGES.map(r => (
             <button key={r.t} onClick={() => setRange(r.v)}
               className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
@@ -215,10 +241,14 @@ function StockChart({ series, metric, setMetric, range, setRange, growth, setGro
                 <stop offset="0%" stopColor={mm.color} stopOpacity={0.22} />
                 <stop offset="100%" stopColor={mm.color} stopOpacity={0} />
               </linearGradient>
+              <linearGradient id="projFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={mm.color} stopOpacity={0.08} />
+                <stop offset="100%" stopColor={mm.color} stopOpacity={0} />
+              </linearGradient>
             </defs>
             <CartesianGrid stroke="#EEF2F6" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700, fill: '#657381' }}
-                   tickLine={false} axisLine={false} minTickGap={18} />
+                   tickLine={false} axisLine={false} minTickGap={grain === "day" ? 44 : 18} />
             <YAxis tick={{ fontSize: 11, fontWeight: 700, fill: '#657381' }} tickLine={false} axisLine={false}
                    tickFormatter={v => (Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v)} width={52} />
             <Tooltip content={<ChartTip />} />
@@ -226,20 +256,20 @@ function StockChart({ series, metric, setMetric, range, setRange, growth, setGro
             <Area type="monotone" dataKey="value" name={mm.t} stroke={mm.color} strokeWidth={2.5}
                   fill="url(#stockFill)" dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} connectNulls />
             <Area type="monotone" dataKey="projected" name={mm.t + ' (projected)'} stroke={mm.color} strokeWidth={2}
-                  strokeDasharray="6 5" fill="none" dot={false} connectNulls />
+                  strokeDasharray="6 5" strokeOpacity={0.55} fill="url(#projFill)" dot={false} connectNulls />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
       <div className="flex gap-1.5 flex-wrap mt-4 items-center">
         <span className="text-[11px] font-black uppercase tracking-[.08em] text-muted mr-1">Projection assumes</span>
-        {[{ v: 'conservative', t: 'No growth' }, { v: 'current', t: 'Recent pace' }, { v: 'aggressive', t: 'Aggressive' }].map(o => (
+        {[{ v: 'conservative', t: 'Half pace' }, { v: 'current', t: 'Recent pace' }, { v: 'aggressive', t: 'Aggressive' }].map(o => (
           <button key={o.v} onClick={() => setGrowth(o.v)}
             className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
               (growth === o.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line')}>{o.t}</button>
         ))}
         <span className="text-xs font-bold text-muted w-full mt-1">
-          The dotted part is a guess based on {(rate * 100).toFixed(1)}% growth a month, not a promise.
+          The lighter dotted line is a guess: it assumes about {money(pace)} of {mm.t.toLowerCase()} per {grain === 'day' ? 'day' : 'month'}, based on your recent pace. Not a promise.
         </span>
       </div>
     </section>

@@ -117,6 +117,70 @@ function computePL(revenueEntries, expenses, categories, depreciation = 0) {
   };
 }
 
+const dayKey = d => String(d || '').slice(0, 10);
+const dayLabel = k => {
+  const d = new Date(k + 'T00:00:00');
+  return isNaN(d) ? k : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+/* Series at whatever granularity the chart is showing. Days are filled in
+   between the first and last entry so the line is continuous like a stock
+   chart, rather than jumping between the handful of dates that happen to have
+   a sale on them. */
+function periodSeries(revenueEntries, expenses, categories, depFor, granularity) {
+  const day = granularity === 'day';
+  const keyOf = day ? dayKey : monthKey;
+  const labelOf = day ? dayLabel : monthLabel;
+
+  const keys = new Set();
+  revenueEntries.forEach(r => keys.add(keyOf(r.date)));
+  expenses.forEach(e => keys.add(keyOf(e.date)));
+  const present = [...keys].filter(Boolean).sort();
+  if (!present.length) return [];
+
+  // Fill the gaps so the line is unbroken.
+  const all = [];
+  if (day) {
+    const start = new Date(present[0] + 'T00:00:00');
+    const end = new Date(present[present.length - 1] + 'T00:00:00');
+    const today = new Date(todayISO() + 'T00:00:00');
+    const stop = end > today ? end : today;
+    for (let d = new Date(start); d <= stop && all.length < 800; d.setDate(d.getDate() + 1)) {
+      all.push(d.toISOString().slice(0, 10));
+    }
+  } else {
+    const [sy, sm] = present[0].split('-').map(Number);
+    const [ey, em] = present[present.length - 1].split('-').map(Number);
+    const cur = new Date(sy, sm - 1, 1), end = new Date(ey, em - 1, 1);
+    const today = new Date(); today.setDate(1);
+    const stop = end > today ? end : today;
+    while (cur <= stop && all.length < 240) {
+      all.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+
+  return all.map(k => {
+    const pl = computePL(
+      revenueEntries.filter(r => keyOf(r.date) === k),
+      expenses.filter(e => keyOf(e.date) === k),
+      categories,
+      day ? 0 : (depFor ? depFor(k) : 0)     // depreciation is a monthly figure
+    );
+    return { key: k, label: labelOf(k), ...pl };
+  });
+}
+
+/* Running totals, so the line climbs as the year goes on instead of bouncing
+   around zero. This is what makes it read like a share price. */
+function cumulative(series) {
+  let r = 0, g = 0, e = 0, n = 0;
+  return series.map(p => {
+    r += p.revenue; g += p.grossProfit; e += p.ebitda; n += p.netProfit;
+    return { ...p, revenue: r, grossProfit: g, ebitda: e, netProfit: n };
+  });
+}
+
 // Monthly series for the charts, oldest first.
 function monthlySeries(revenueEntries, expenses, categories, depreciationFor) {
   const keys = new Set();
