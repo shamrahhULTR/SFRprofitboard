@@ -21,9 +21,9 @@ function MarketingForm({ initial, onSave, onClose }) {
         </div>
       </div>
       <div className="mt-6 rounded-2xl border-2 border-line overflow-hidden">
-        <div className="grid grid-cols-2 divide-x divide-line bg-white">
+        <div className="grid grid-cols-2 divide-x divide-line bg-panel">
           <Mini label="Cost per lead" value={showMoney(ratio(num(f.spend), num(f.leads)))} />
-          <Mini label="Cost per customer" value={showMoney(ratio(num(f.spend), num(f.closes)))} color="#9333EA" />
+          <Mini label="Cost per customer" value={showMoney(ratio(num(f.spend), num(f.closes)))} color="#B685FF" />
         </div>
       </div>
       <div className="flex gap-3 justify-end mt-7">
@@ -41,16 +41,14 @@ function MarketingForm({ initial, onSave, onClose }) {
 
 function TabBar({ tab, setTab, tabs }) {
   return (
-    <div className="sticky top-[68px] sm:top-[84px] z-30 bg-shell/95 backdrop-blur -mx-4 sm:-mx-7 px-4 sm:px-7 py-3 no-print">
-      <div className="flex gap-2 overflow-x-auto relative" style={{ scrollbarWidth: 'none' }}>
-        {tabs.map(t => (
-          <button key={t.v} onClick={() => setTab(t.v)}
-            className={'px-4 py-3 rounded-2xl font-black text-sm whitespace-nowrap transition shrink-0 border-2 ' +
-              (tab === t.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line hover:bg-shell')}>
-            <span className="mr-1.5" aria-hidden="true">{t.icon}</span>{t.t}
-          </button>
-        ))}
-      </div>
+    <div className="hidden sm:flex gap-2 overflow-x-auto py-3 no-print -mx-1 px-1">
+      {tabs.map(t => (
+        <button key={t.v} onClick={() => setTab(t.v)}
+          className={'flex items-center gap-2 whitespace-nowrap px-4 py-2.5 rounded-2xl font-black text-sm border-2 transition shrink-0 ' +
+            (tab === t.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line hover:bg-shell')}>
+          <Icon name={t.icon} size={16} />{t.t}
+        </button>
+      ))}
     </div>
   );
 }
@@ -62,6 +60,9 @@ function Dashboard({ session, profile, signOut }) {
   const meId = session?.user?.id;
 
   const [tab, setTab] = useState('dash');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moneySub, setMoneySub] = useState('spend');   // spend | fixed (mobile Money tab)
+  const [milestone, setMilestone] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [mkt, setMkt] = useState([]);
   const [docs, setDocs] = useState([]);
@@ -222,7 +223,7 @@ function Dashboard({ session, profile, signOut }) {
 
   /* ── expense writes ── */
   const saveExpense = async payload => {
-    const { file, ...row } = payload;
+    const { file, scan, ...row } = payload;
     setRecentCats(p => [row.category_id, ...p.filter(x => x !== row.category_id)].slice(0, 6));
 
     if (!CLOUD) {
@@ -242,6 +243,13 @@ function Dashboard({ session, profile, signOut }) {
     }
     const r = await sb.from('expenses').insert({ ...row, receipt_url, created_by: meId });
     if (r.error) throw r.error;
+    // Best-effort: keep the model's raw read next to what the human actually
+    // saved, so the prompt can be improved by seeing where it was wrong.
+    if (scan) {
+      sb.from('scan_logs').insert({
+        raw: scan.raw, final_saved: row, source: scan.source, created_by: meId
+      }).then(() => {}, () => {});
+    }
     await refresh();
   };
 
@@ -390,21 +398,71 @@ function Dashboard({ session, profile, signOut }) {
 
   const papersJob = modal?.kind === 'docs' ? jobs.find(j => j.id === modal.row.id) : null;
 
+  /* ── instrument cluster: this month vs the best month so far ── */
+  const nowKey = monthKey(todayISO());
+  const thisMonth = series.length && series[series.length - 1].key === nowKey
+    ? series[series.length - 1]
+    : { revenue: 0, grossProfit: 0, ebitda: 0, netProfit: 0 };
+  const bestOf = m => series.filter(x => x.key !== nowKey).reduce((a, x) => Math.max(a, x[m] || 0), 0);
+
+  /* ── logging streak + today's tick, computed from the data, honest ── */
+  const loggedDays = useMemo(() => {
+    const set = new Set();
+    expenses.forEach(e => { if (!e._bill && !e._legacy && e.date) set.add(String(e.date).slice(0, 10)); });
+    jobs.forEach(j => { if (j.created_at) set.add(String(j.created_at).slice(0, 10)); });
+    return set;
+  }, [expenses, jobs]);
+  const streak = useMemo(() => {
+    let n = 0; const d = new Date();
+    if (!loggedDays.has(d.toISOString().slice(0, 10))) d.setDate(d.getDate() - 1);
+    while (loggedDays.has(d.toISOString().slice(0, 10))) { n++; d.setDate(d.getDate() - 1); }
+    return n;
+  }, [loggedDays]);
+  const today = useMemo(() => {
+    const k = todayISO();
+    const ex = expenses.filter(e => !e._bill && !e._legacy && String(e.date).slice(0, 10) === k);
+    const jb = jobs.filter(j => String(j.created_at || '').slice(0, 10) === k);
+    return { count: ex.length + jb.length, dollars: ex.reduce((a, e) => a + num(e.amount), 0) };
+  }, [expenses, jobs]);
+
+  /* ── milestones: current month's net crossing each $10k. First run seeds
+     silently so old data doesn't fire a parade. ── */
+  useEffect(() => {
+    if (!isAdmin) return;
+    let seen; try { seen = JSON.parse(localStorage.getItem('sfr_pb_ms') || '[]'); } catch (e) { seen = []; }
+    const boundary = Math.floor(thisMonth.netProfit / 10000) * 10000;
+    if (boundary <= 0) return;
+    const key = 'net-' + nowKey + '-' + boundary;
+    if (seen.includes(key)) return;
+    const first = !localStorage.getItem('sfr_pb_ms');
+    const next = [...seen, key];
+    try { localStorage.setItem('sfr_pb_ms', JSON.stringify(next)); } catch (e) {}
+    if (!first) setMilestone({ value: thisMonth.netProfit,
+      line: `This month's net profit just cleared ${money(boundary)}.` });
+  }, [thisMonth.netProfit, isAdmin, nowKey]);
+
   const TABS = [
-    { v: 'dash', t: 'Dashboard', icon: '📊' },
-    { v: 'out',  t: 'Money Out', icon: '🧾' },
-    { v: 'jobs', t: 'Jobs',      icon: '🏠' },
-    ...(isAdmin ? [{ v: 'charts', t: 'Charts', icon: '📈' }] : []),
-    ...(isAdmin ? [{ v: 'bills', t: 'Fixed Costs', icon: '🔁' }] : []),
-    ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: '📣' }] : []),
-    ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: '👥' }] : [])
+    { v: 'dash', t: 'Dashboard', icon: 'gauge' },
+    { v: 'out',  t: 'Money Out', icon: 'money' },
+    { v: 'jobs', t: 'Jobs',      icon: 'home' },
+    ...(isAdmin ? [{ v: 'charts', t: 'Charts', icon: 'trend' }] : []),
+    ...(isAdmin ? [{ v: 'bills', t: 'Fixed Costs', icon: 'repeat' }] : []),
+    ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: 'mega' }] : []),
+    ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: 'users' }] : [])
+  ];
+  const NAV = [
+    { v: 'dash', t: 'Board', icon: 'gauge' },
+    { v: 'out',  t: 'Money', icon: 'money' },
+    { v: 'jobs', t: 'Jobs',  icon: 'home' },
+    ...(isAdmin ? [{ v: 'charts', t: 'Growth', icon: 'trend' }] : []),
+    { v: 'more', t: 'More',  icon: 'more' }
   ];
 
-  if (loading) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-navy">Loading your numbers…</p></div>;
+  if (loading) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Loading your numbers…</p></div>;
 
   return (
     <div className="min-h-screen pb-28">
-      <header className="sticky top-0 z-40 bg-navy text-white shadow-lg no-print">
+      <header className="sticky top-0 z-40 bg-panel2 text-white shadow-lg no-print">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-7 py-3 sm:py-4 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <img src="sfr-logo-reversed.png" alt={COMPANY} className="h-9 sm:h-14 w-auto object-contain shrink-0" />
@@ -415,7 +473,15 @@ function Dashboard({ session, profile, signOut }) {
               </div>
             </div>
           </div>
-          {CLOUD && <Btn tone="ghost" size="sm" onClick={signOut} className="!bg-white/15 !text-white hover:!bg-white/25">Sign out</Btn>}
+          <div className="flex items-center gap-2">
+            {streak > 0 && (
+              <span className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black"
+                    style={{ background: 'rgba(255,107,26,.14)', color: '#FF9C5A' }}>
+                <Icon name="flame" size={14} />{streak}-day streak
+              </span>
+            )}
+            {CLOUD && <Btn tone="ghost" size="sm" onClick={signOut} className="!bg-white/15 !text-white hover:!bg-white/25 hidden sm:block">Sign out</Btn>}
+          </div>
         </div>
       </header>
 
@@ -430,21 +496,35 @@ function Dashboard({ session, profile, signOut }) {
           {/* ── DASHBOARD ── */}
           {tab === 'dash' && (isAdmin ? (
             <>
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-                <BigCard bg="#102D7F" ink="#FFFFFF" icon="💵" label="Revenue"
-                         value={money(pl.revenue)} sub="Everything contracted" />
-                <BigCard bg="#0E7A4A" ink="#FFFFFF" icon="🔨" label="Gross Profit"
-                         value={money(pl.grossProfit)}
-                         sub={pl.grossMargin === null ? 'Add revenue to see margin' : `${pct(pl.grossMargin)} margin`}
-                         foot="Revenue minus job costs only" />
-                <BigCard bg="#9333EA" ink="#FFFFFF" icon="📈" label="EBITDA"
-                         value={money(pl.ebitda)}
-                         sub={pl.ebitdaMargin === null ? 'Add revenue to see margin' : `${pct(pl.ebitdaMargin)} margin`}
-                         foot="After overhead. Owner draws excluded." />
-                <BigCard bg="#F6821F" ink="#0A1F5C" icon="🏦" label="Net Profit"
-                         value={money(pl.netProfit)}
-                         sub={pl.netMargin === null ? 'Add revenue to see margin' : `${pct(pl.netMargin)} margin`}
-                         foot="After tax, interest, depreciation and draws" />
+              {/* the taxi meter: this month, after everything */}
+              <section className="bg-panel rounded-3xl card-shadow border border-line px-5 sm:px-7 py-6 text-center">
+                <div className="text-[11px] font-black uppercase tracking-[.16em] text-muted">
+                  {new Date().toLocaleDateString('en-US', { month: 'long' })} net profit, after everything
+                </div>
+                <TickingNumber value={thisMonth.netProfit}
+                  className="block text-5xl sm:text-6xl font-extrabold mt-3"
+                />
+                <div className="text-xs font-bold text-muted mt-3">
+                  {today.count > 0
+                    ? `${today.count} entr${today.count === 1 ? 'y' : 'ies'} logged today · ${moneyExact(today.dollars)} tracked`
+                    : 'Nothing logged yet today'}
+                </div>
+              </section>
+
+              {/* the gauge strip: this month, filling toward your best month */}
+              <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+                <Gauge label="Revenue"      value={thisMonth.revenue}     target={bestOf('revenue')}     color="#8FA9FF" sub="this month" />
+                <Gauge label="Gross profit" value={thisMonth.grossProfit} target={bestOf('grossProfit')} color="#3DDC84" sub="after job costs" />
+                <Gauge label="EBITDA"       value={thisMonth.ebitda}      target={bestOf('ebitda')}      color="#B685FF" sub="after overhead" />
+                <Gauge label="Net profit"   value={thisMonth.netProfit}   target={bestOf('netProfit')}   color="#F5B942" sub="after everything" />
+              </div>
+
+              {/* all-time, so the strip never hides the company totals */}
+              <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+                <Tile label="All-time revenue" value={money(pl.revenue)} sub="Everything contracted" />
+                <Tile label="All-time gross" value={money(pl.grossProfit)} sub={pl.grossMargin === null ? 'Add revenue first' : pct(pl.grossMargin) + ' margin'} color="#3DDC84" />
+                <Tile label="All-time EBITDA" value={money(pl.ebitda)} sub="Owner draws excluded" color="#B685FF" />
+                <Tile label="All-time net" value={money(pl.netProfit)} sub={pl.netMargin === null ? '—' : pct(pl.netMargin) + ' margin'} color="#F5B942" />
               </div>
 
               {pl.operating === 0 && pl.draws === 0 && pl.revenue > 0 && (
@@ -463,20 +543,20 @@ function Dashboard({ session, profile, signOut }) {
               </Banner>
 
               <section>
-                <h2 className="text-2xl font-black text-navy mb-4">Trailing twelve months</h2>
+                <h2 className="text-2xl font-black text-lite mb-4">Trailing twelve months</h2>
                 <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                   <Tile label="TTM revenue" value={money(ttm.revenue)} sub="Last 12 months" />
-                  <Tile label="TTM gross profit" value={money(ttm.grossProfit)} sub="Before overhead" color="#0E7A4A" />
-                  <Tile label="TTM EBITDA" value={money(ttm.ebitda)} sub="What a buyer asks for" color="#9333EA" />
+                  <Tile label="TTM gross profit" value={money(ttm.grossProfit)} sub="Before overhead" color="#3DDC84" />
+                  <Tile label="TTM EBITDA" value={money(ttm.ebitda)} sub="What a buyer asks for" color="#B685FF" />
                   <Tile label="TTM net profit" value={money(ttm.netProfit)} sub="What actually stayed" color="#B4620A" />
                 </div>
               </section>
 
               <section>
-                <h2 className="text-2xl font-black text-navy mb-4">Cash and work</h2>
+                <h2 className="text-2xl font-black text-lite mb-4">Cash and work</h2>
                 <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                   <Tile label="Contracted" value={money(totals.contracted)} sub="Signed up" />
-                  <Tile label="Collected" value={money(totals.collected)} sub="Actually in the bank" color="#0E7A4A" />
+                  <Tile label="Collected" value={money(totals.collected)} sub="Actually in the bank" color="#3DDC84" />
                   <Tile label="Jobs installed" value={`${totals.installed} / ${jobs.length}`} sub="Green checks in Jobs" />
                   <Tile label="Squares sold" value={totals.squares.toLocaleString('en-US')} sub="1 square = 100 sq ft" />
                 </div>
@@ -512,8 +592,8 @@ function Dashboard({ session, profile, signOut }) {
                 <MonthlyBars series={series} />
               </div>
 
-              <section className="bg-white rounded-3xl card-shadow p-5 sm:p-7">
-                <h3 className="text-xl font-black text-navy mb-3">Pick a job to break down</h3>
+              <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+                <h3 className="text-xl font-black text-lite mb-3">Pick a job to break down</h3>
                 <Select label="Job" value={pieJob} onChange={setPieJob}
                         options={[{ v: '', t: 'Choose a job' }, ...jobs.map(j => ({ v: j.id, t: j.name }))]} />
               </section>
@@ -533,7 +613,24 @@ function Dashboard({ session, profile, signOut }) {
           )}
 
           {/* ── MONEY OUT ── */}
-          {tab === 'out' && (
+          {tab === 'out' && isAdmin && (
+            <div className="sm:hidden flex gap-1.5 bg-panel border border-line rounded-2xl p-1.5 no-print">
+              {[{ v: 'spend', t: 'Spending' }, { v: 'fixed', t: 'Fixed costs' }].map(o => (
+                <button key={o.v} onClick={() => setMoneySub(o.v)}
+                  className={'flex-1 py-2.5 rounded-xl font-black text-sm transition ' +
+                    (moneySub === o.v ? 'bg-panel2 text-white' : 'text-muted')}>{o.t}</button>
+              ))}
+            </div>
+          )}
+          {tab === 'out' && moneySub === 'fixed' && isAdmin && (
+            <div className="sm:hidden">
+              <BillsPanel bills={bills} categories={categories}
+                          onAdd={() => setModal({ kind: 'bill' })}
+                          onEdit={row => setModal({ kind: 'bill', row })}
+                          onToggle={toggleBill} onDelete={delBill} />
+            </div>
+          )}
+          {tab === 'out' && (moneySub === 'spend' || !isAdmin) && (
             <MoneyOut expenses={allExpenses} categories={categories} jobs={jobs}
                       onDelete={deleteExpense} isAdmin={isAdmin}
                       noteDismissed={noteDismissed} onDismissNote={() => setNoteDismissed(true)} />
@@ -543,13 +640,13 @@ function Dashboard({ session, profile, signOut }) {
           {tab === 'jobs' && (
             <>
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-2xl font-black text-navy">Every job</h2>
+                <h2 className="text-2xl font-black text-lite">Every job</h2>
                 <Btn tone="green" size="md" onClick={() => setModal({ kind: 'job' })}>＋ Add job</Btn>
               </div>
               {jobs.length === 0 ? (
-                <div className="bg-white rounded-3xl card-shadow p-10 text-center">
-                  <div className="text-5xl mb-3" aria-hidden="true">🏠</div>
-                  <h3 className="text-2xl font-black text-navy">No jobs yet</h3>
+                <div className="bg-panel rounded-3xl card-shadow p-10 text-center">
+                  <div className="text-muted mx-auto w-fit mb-4"><Icon name="home" size={44} /></div>
+                  <h3 className="text-2xl font-black text-lite">No jobs yet</h3>
                   <p className="text-muted font-bold mt-2">Add your first job to start tracking.</p>
                 </div>
               ) : (
@@ -570,17 +667,17 @@ function Dashboard({ session, profile, signOut }) {
           {tab === 'mkt' && isAdmin && (
             <>
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-2xl font-black text-navy">Marketing</h2>
+                <h2 className="text-2xl font-black text-lite">Marketing</h2>
                 <Btn tone="orange" size="md" onClick={() => setModal({ kind: 'mkt' })}>＋ Add spend</Btn>
               </div>
               <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                 <Tile label="Cost per lead" value={showMoney(m.cpl)} sub="To make the phone ring" />
                 <Tile label="Demo rate" value={showPct(m.demoRate)} sub="Calls that became appointments" />
                 <Tile label="Close rate" value={showPct(m.closeRate)} sub="Appointments that became jobs" />
-                <Tile label="Cost per customer" value={showMoney(m.cac)} sub="Spend per signed job" color="#9333EA" />
+                <Tile label="Cost per customer" value={showMoney(m.cac)} sub="Spend per signed job" color="#B685FF" />
               </div>
               {m.cac !== null && (
-                <section className="rounded-3xl p-6 lift" style={{ background: 'linear-gradient(135deg,#0A1F5C,#102D7F)' }}>
+                <section className="rounded-3xl p-6 lift" style={{ background: 'linear-gradient(135deg,#0B1220,#131B2E)' }}>
                   <div className="text-[11px] font-black uppercase tracking-[.14em] text-orange">Target spend guide</div>
                   <p className="text-white font-black mt-2 leading-tight" style={{ fontSize: 'clamp(1.3rem,3.4vw,2rem)' }}>
                     To get 1 new customer, you need to spend <span className="text-orange">{moneyExact(m.cac)}</span> in marketing.
@@ -588,14 +685,14 @@ function Dashboard({ session, profile, signOut }) {
                 </section>
               )}
               {mkt.length === 0 ? (
-                <div className="bg-white rounded-3xl card-shadow p-10 text-center">
-                  <div className="text-5xl mb-3" aria-hidden="true">📣</div>
-                  <h3 className="text-2xl font-black text-navy">No marketing logged yet</h3>
+                <div className="bg-panel rounded-3xl card-shadow p-10 text-center">
+                  <div className="text-muted mx-auto w-fit mb-4"><Icon name="mega" size={44} /></div>
+                  <h3 className="text-2xl font-black text-lite">No marketing logged yet</h3>
                 </div>
               ) : (
                 <div className="grid gap-4 lg:grid-cols-2">
                   {mkt.map(r => (
-                    <div key={r.id} className="bg-white rounded-3xl card-shadow p-5">
+                    <div key={r.id} className="bg-panel rounded-3xl card-shadow p-5">
                       <div className="font-black text-ink text-lg break-words">{r.label}</div>
                       <div className="text-xs font-bold text-muted mt-1">
                         {moneyExact(r.spend)} · {num(r.leads)} leads · {num(r.demos)} demos · {num(r.closes)} sales
@@ -603,11 +700,11 @@ function Dashboard({ session, profile, signOut }) {
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         <div className="bg-shell rounded-2xl px-4 py-3">
                           <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">Per lead</div>
-                          <div className="figure text-2xl font-black text-navy mt-0.5">{showMoney(ratio(num(r.spend), num(r.leads)))}</div>
+                          <div className="figure text-2xl font-black text-lite mt-0.5">{showMoney(ratio(num(r.spend), num(r.leads)))}</div>
                         </div>
                         <div className="bg-shell rounded-2xl px-4 py-3">
                           <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">Per customer</div>
-                          <div className="figure text-2xl font-black mt-0.5" style={{ color: '#9333EA' }}>{showMoney(ratio(num(r.spend), num(r.closes)))}</div>
+                          <div className="figure text-2xl font-black mt-0.5" style={{ color: '#B685FF' }}>{showMoney(ratio(num(r.spend), num(r.closes)))}</div>
                         </div>
                       </div>
                       <div className="flex gap-2 mt-4">
@@ -624,7 +721,7 @@ function Dashboard({ session, profile, signOut }) {
           {/* ── TEAM ── */}
           {tab === 'team' && CLOUD && isAdmin && (
             <>
-              <h2 className="text-2xl font-black text-navy">Who can get in</h2>
+              <h2 className="text-2xl font-black text-lite">Who can get in</h2>
               <TeamPanel people={people} meId={meId} onSetRole={setRole} busyId={roleBusy} />
               <p className="text-xs font-bold text-muted">Anyone who signs in starts as crew unless their email is on the admin list.</p>
             </>
@@ -633,9 +730,41 @@ function Dashboard({ session, profile, signOut }) {
       </main>
 
       {/* Fast entry, reachable in one tap from any tab. */}
+      {/* bottom nav: five thumb slots, replaces the overflowing tab strip */}
+      <BottomNav tab={tab} setTab={v => { setTab(v); setMoreOpen(false); }}
+                 items={NAV} moreOpen={moreOpen} onMore={() => setMoreOpen(o => !o)} />
+
+      {moreOpen && (
+        <div className="sm:hidden fixed inset-0 z-50" style={{ background: 'rgba(4,8,18,.7)' }}
+             onClick={() => setMoreOpen(false)}>
+          <div className="absolute bottom-0 inset-x-0 bg-panel rounded-t-3xl border-t border-line p-5 pb-24 fade-in"
+               onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-line mx-auto mb-4" />
+            {[
+              ...(isAdmin ? [{ v: 'bills', t: 'Fixed costs', icon: 'repeat' }] : []),
+              ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: 'mega' }] : []),
+              ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: 'users' }] : [])
+            ].map(it => (
+              <button key={it.v} onClick={() => { setTab(it.v); setMoreOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-3.5 rounded-2xl font-black text-lite hover:bg-shell text-left">
+                <Icon name={it.icon} size={20} className="text-muted" />{it.t}
+              </button>
+            ))}
+            {CLOUD && (
+              <button onClick={signOut}
+                className="w-full flex items-center gap-3 px-3 py-3.5 rounded-2xl font-black text-danger text-left">
+                <Icon name="more" size={20} />Sign out
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <MilestoneOverlay ms={milestone} onClose={() => setMilestone(null)} />
+
       <button onClick={() => setModal({ kind: 'fast' })} aria-label="Add an expense"
-        className="fixed bottom-5 right-5 z-40 w-16 h-16 rounded-full bg-orange text-navyDeep text-3xl font-black lift no-print
-                   flex items-center justify-center active:scale-95 transition">＋</button>
+        className="fixed bottom-24 sm:bottom-5 right-5 z-40 w-16 h-16 rounded-full bg-orange text-navyDeep lift no-print tick-bounce grid place-items-center
+                   flex items-center justify-center active:scale-95 transition"><Icon name="plus" size={30} /></button>
 
       {modal?.kind === 'fast' && (
         <Modal title="Add an expense" subtitle="Amount, what it was for, snap the receipt." onClose={() => setModal(null)}>
@@ -710,9 +839,9 @@ function App() {
   const signOut = async () => { await sb.auth.signOut(); setProfile(null); };
 
   if (!CLOUD)   return <Dashboard session={null} profile={{ role: 'admin' }} signOut={() => {}} />;
-  if (!ready)   return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-navy">Starting up…</p></div>;
+  if (!ready)   return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Starting up…</p></div>;
   if (!session) return <SignIn />;
-  if (!profile) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-navy">Signing you in…</p></div>;
+  if (!profile) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Signing you in…</p></div>;
   return <Dashboard session={session} profile={profile} signOut={signOut} />;
 }
 

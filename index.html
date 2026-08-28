@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Profit Board" />
-<meta name="theme-color" content="#102D7F" />
+<meta name="theme-color" content="#0B1220" />
 <title>Profit Board · Square Foot Roofing</title>
 <link rel="icon" type="image/png" href="favicon.png?v=2">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,900&family=Archivo:wght@700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -21,21 +21,31 @@
     theme: {
       extend: {
         colors: {
-          navy:      '#102D7F',  /* brand navy — squarefootroofing.com */
+          /* Job-site instrument cluster: same token names, dark values, so
+             existing classes restyle themselves. */
+          navy:      '#131B2E',
           navyDeep:  '#0A1F5C',
-          orange:    '#F6821F',  /* brand orange — squarefootroofing.com */
-          money:     '#0E7A4A',
-          moneyMark: '#17976B',
-          grape:     '#9333EA',
-          costMark:  '#5A6B7F',
-          warn:      '#E0A100',
-          danger:    '#BE2B1D',
-          ink:       '#14212B',
-          muted:     '#657381',
-          line:      '#DCE3EB',
-          shell:     '#EEF2F6'
+          orange:    '#FF6B1A',  /* safety orange: the ONE action that matters */
+          money:     '#3DDC84',
+          moneyMark: '#3DDC84',
+          grape:     '#B685FF',
+          costMark:  '#8891A8',
+          warn:      '#F5B942',
+          danger:    '#FF6B6B',
+          ink:       '#F2F0EA',
+          muted:     '#8891A8',
+          line:      '#2A3550',
+          shell:     '#1B2440',
+          inkbase:   '#0B1220',
+          panel:     '#131B2E',
+          panel2:    '#1E2A4A',
+          lite:      '#F2F0EA',
+          paper:     '#F7F5F0'
         },
-        fontFamily: { sans: ['DM Sans', 'Archivo', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'] }
+        fontFamily: {
+          sans: ['DM Sans', 'Archivo', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
+        }
       }
     }
   }
@@ -60,19 +70,30 @@
 </script>
 
 <style>
-  :root { color-scheme: light; }
-  html, body { margin:0; background:#EEF2F6; font-family:'DM Sans','Archivo',system-ui,sans-serif; color:#14212B; }
-  /* Big standalone values use proportional figures; only columns get tabular. */
-  .figure { font-variant-numeric: proportional-nums; letter-spacing:-.02em; }
-  .tnum   { font-variant-numeric: tabular-nums; }
-  .card-shadow { box-shadow: 0 10px 26px rgba(16,38,64,.10); }
-  .lift        { box-shadow: 0 18px 42px rgba(16,38,64,.16); }
-  input, select { font: inherit; }
-  input:focus, select:focus { outline:none; border-color:#102D7F; box-shadow:0 0 0 4px rgba(16,45,127,.16); }
+  :root { color-scheme: dark; }
+  html, body { margin:0; background:#0B1220; font-family:'DM Sans','Archivo',system-ui,sans-serif; color:#F2F0EA; }
+  /* Money reads like a meter: mono, tabular, ticking — never jittering. */
+  .figure { font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums; letter-spacing:-.04em; }
+  .tnum   { font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums; font-size:.92em; }
+  .card-shadow { box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 10px 26px rgba(0,0,0,.35); }
+  .lift        { box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 18px 42px rgba(0,0,0,.5); }
+  input, select, textarea { font: inherit; color:#F2F0EA; }
+  input, select { background:#0F1626; }
+  input::placeholder { color:#5B657E; }
+  input:focus, select:focus { outline:none; border-color:#FF6B1A; box-shadow:0 0 0 4px rgba(255,107,26,.18); }
+  select option { background:#131B2E; color:#F2F0EA; }
   .fade-in { animation: fade .18s ease-out; }
   @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
+  /* The save button's single haptic-style bounce. */
+  .tick-bounce:active { transform: scale(.96); }
+  /* Bottom nav clears the iPhone home bar. */
+  .bottom-nav { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
   /* Hide the tab strip's scrollbar without killing the scroll itself. */
   ::-webkit-scrollbar { height: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .fade-in { animation: none; }
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
   @media print { .no-print { display:none !important; } }
 </style>
 </head>

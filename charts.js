@@ -8,13 +8,13 @@ const RC = window.Recharts || {};
 /* Sequential ramp for "where the money went". Ordered categories, so one hue
    stepped light → dark rather than a rainbow; net profit is the one green
    accent so the eye lands on what's left. */
-const SPEND_RAMP = ['#B9C4D0', '#8494A8', '#5A6B7F', '#3D4C5E', '#26313E'];
-const NET_GREEN = '#17976B';
+const SPEND_RAMP = ['#3A4664', '#4E5E86', '#6B7EAD', '#8FA3D4', '#B4C6F0'];
+const NET_GREEN = '#3DDC84';
 
 function ChartCard({ title, subtitle, children, note }) {
   return (
-    <section className="bg-white rounded-3xl card-shadow p-5 sm:p-7">
-      <h3 className="text-xl font-black text-navy">{title}</h3>
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+      <h3 className="text-xl font-black text-lite">{title}</h3>
       {subtitle && <p className="text-sm text-muted font-semibold mt-1">{subtitle}</p>}
       <div className="mt-5">{children}</div>
       {note && <p className="text-xs font-bold text-muted mt-3">{note}</p>}
@@ -25,8 +25,8 @@ function ChartCard({ title, subtitle, children, note }) {
 function ChartTip({ active, payload, label, total }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="bg-white rounded-2xl px-4 py-3 border-2 border-line card-shadow">
-      {label && <div className="font-black text-navy text-sm mb-1">{label}</div>}
+    <div className="bg-panel rounded-2xl px-4 py-3 border-2 border-line card-shadow">
+      {label && <div className="font-black text-lite text-sm mb-1">{label}</div>}
       {payload.map(p => (
         <div key={p.name} className="flex items-center gap-2 text-sm font-bold text-ink">
           <i className="w-3 h-3 rounded-[3px] inline-block shrink-0" style={{ background: p.color || p.fill }} />
@@ -74,7 +74,7 @@ function SpendPie({ pl, byCategory }) {
         <ResponsiveContainer>
           <PieChart>
             <Pie data={slices} dataKey="value" nameKey="name" innerRadius={58} outerRadius={104}
-                 paddingAngle={2} stroke="#FFFFFF" strokeWidth={2}>
+                 paddingAngle={2} stroke="#131B2E" strokeWidth={2}>
               {slices.map((s, i) => (
                 <Cell key={s.name} fill={s.net ? NET_GREEN : SPEND_RAMP[i % SPEND_RAMP.length]} />
               ))}
@@ -117,14 +117,14 @@ function MonthlyBars({ series }) {
       <div style={{ width: '100%', height: 300 }}>
         <ResponsiveContainer>
           <BarChart data={data} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
-            <CartesianGrid stroke="#E8EDF2" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 700, fill: '#657381' }} tickLine={false} axisLine={{ stroke: '#E8EDF2' }} />
-            <YAxis tick={{ fontSize: 12, fontWeight: 700, fill: '#657381' }} tickLine={false} axisLine={false}
+            <CartesianGrid stroke="#232D47" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 700, fill: '#8891A8' }} tickLine={false} axisLine={{ stroke: '#232D47' }} />
+            <YAxis tick={{ fontSize: 12, fontWeight: 700, fill: '#8891A8' }} tickLine={false} axisLine={false}
                    tickFormatter={v => (Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v)} width={54} />
-            <Tooltip content={<ChartTip />} cursor={{ fill: 'rgba(16,45,127,.05)' }} />
-            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 800 }} />
-            <Bar dataKey="Job costs" stackId="a" fill="#5A6B7F" maxBarSize={38} />
-            <Bar dataKey="Overhead"  stackId="a" fill="#8494A8" maxBarSize={38} />
+            <Tooltip content={<ChartTip />} cursor={{ fill: 'rgba(255,255,255,.05)' }} />
+            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 800 }} formatter={v => <span style={{ color: '#8891A8' }}>{v}</span>} />
+            <Bar dataKey="Job costs" stackId="a" fill="#8891A8" maxBarSize={38} />
+            <Bar dataKey="Overhead"  stackId="a" fill="#5A6B8C" maxBarSize={38} />
             <Bar dataKey="Net profit" stackId="a" fill={NET_GREEN} maxBarSize={38} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -143,10 +143,10 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
   const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, defs } = RC;
 
   const METRICS = [
-    { v: 'revenue',     t: 'Revenue',      color: '#102D7F' },
-    { v: 'grossProfit', t: 'Gross profit', color: '#0E7A4A' },
-    { v: 'ebitda',      t: 'EBITDA',       color: '#9333EA' },
-    { v: 'netProfit',   t: 'Net profit',   color: '#B4620A' }
+    { v: 'revenue',     t: 'Revenue',      color: '#8FA9FF' },
+    { v: 'grossProfit', t: 'Gross profit', color: '#3DDC84' },
+    { v: 'ebitda',      t: 'EBITDA',       color: '#B685FF' },
+    { v: 'netProfit',   t: 'Net profit',   color: '#F5B942' }
   ];
   const RANGES = grain === 'day'
     ? [{ v: 30, t: '30D' }, { v: 90, t: '90D' }, { v: 365, t: '1Y' }, { v: 0, t: 'All' }]
@@ -190,7 +190,7 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
   const up = change !== null && change >= 0;
 
   return (
-    <section className="bg-white rounded-3xl card-shadow p-5 sm:p-7">
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-[.1em] text-muted">{mm.t}{running ? ', all time so far' : grain === 'day' ? ', latest day' : ', this month'}</div>
@@ -198,7 +198,7 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
             {money(latest)}
           </div>
           {change !== null && (
-            <div className="text-sm font-black mt-2" style={{ color: up ? '#0E7A4A' : '#BE2B1D' }}>
+            <div className="text-sm font-black mt-2" style={{ color: up ? '#3DDC84' : '#FF6B6B' }}>
               {up ? '\u25B2' : '\u25BC'} {Math.abs(Math.round(change))}% over this window
             </div>
           )}
@@ -208,18 +208,18 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
             {[{ v: 'day', t: 'Day by day' }, { v: 'month', t: 'Month by month' }].map(o => (
               <button key={o.v} onClick={() => { setGrain(o.v); setRange(o.v === 'day' ? 90 : 12); }}
                 className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
-                  (grain === o.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line')}>{o.t}</button>
+                  (grain === o.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line')}>{o.t}</button>
             ))}
             <button onClick={() => setRunning(!running)}
               className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
-                (running ? 'bg-money text-white border-money' : 'bg-white text-navy border-line')}>
-              {running ? 'Running total' : 'Per day'}
+                (running ? 'bg-money border-money' : 'bg-panel text-lite border-line')}>
+              <span style={running ? { color: '#0B1220' } : null}>{running ? 'Running total' : 'Per day'}</span>
             </button>
           </div>
           {RANGES.map(r => (
             <button key={r.t} onClick={() => setRange(r.v)}
               className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
-                (range === r.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line')}>{r.t}</button>
+                (range === r.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line')}>{r.t}</button>
           ))}
         </div>
       </div>
@@ -228,8 +228,8 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
         {METRICS.map(o => (
           <button key={o.v} onClick={() => setMetric(o.v)}
             className={'px-3.5 py-2 rounded-xl font-black text-xs border-2 transition ' +
-              (metric === o.v ? 'text-white' : 'bg-white text-navy border-line')}
-            style={metric === o.v ? { background: o.color, borderColor: o.color } : {}}>{o.t}</button>
+              (metric === o.v ? '' : 'bg-panel text-lite border-line')}
+            style={metric === o.v ? { background: o.color, borderColor: o.color, color: '#0B1220' } : {}}>{o.t}</button>
         ))}
       </div>
 
@@ -246,15 +246,15 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
                 <stop offset="100%" stopColor={mm.color} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="#EEF2F6" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700, fill: '#657381' }}
+            <CartesianGrid stroke="#232D47" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700, fill: '#8891A8' }}
                    tickLine={false} axisLine={false} minTickGap={grain === "day" ? 44 : 18} />
-            <YAxis tick={{ fontSize: 11, fontWeight: 700, fill: '#657381' }} tickLine={false} axisLine={false}
+            <YAxis tick={{ fontSize: 11, fontWeight: 700, fill: '#8891A8' }} tickLine={false} axisLine={false}
                    tickFormatter={v => (Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v)} width={52} />
             <Tooltip content={<ChartTip />} />
-            <ReferenceLine y={0} stroke="#DCE3EB" />
+            <ReferenceLine y={0} stroke="#2A3550" />
             <Area type="monotone" dataKey="value" name={mm.t} stroke={mm.color} strokeWidth={2.5}
-                  fill="url(#stockFill)" dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} connectNulls />
+                  fill="url(#stockFill)" dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#131B2E' }} connectNulls />
             <Area type="monotone" dataKey="projected" name={mm.t + ' (projected)'} stroke={mm.color} strokeWidth={2}
                   strokeDasharray="6 5" strokeOpacity={0.55} fill="url(#projFill)" dot={false} connectNulls />
           </AreaChart>
@@ -266,7 +266,7 @@ function StockChart({ series, perSeries, metric, setMetric, range, setRange, gro
         {[{ v: 'conservative', t: 'Half pace' }, { v: 'current', t: 'Recent pace' }, { v: 'aggressive', t: 'Aggressive' }].map(o => (
           <button key={o.v} onClick={() => setGrowth(o.v)}
             className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
-              (growth === o.v ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line')}>{o.t}</button>
+              (growth === o.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line')}>{o.t}</button>
         ))}
         <span className="text-xs font-bold text-muted w-full mt-1">
           The lighter dotted line is a guess: it assumes about {money(pace)} of {mm.t.toLowerCase()} per {grain === 'day' ? 'day' : 'month'}, based on your recent pace. Not a promise.
@@ -343,7 +343,7 @@ function JobDollarPie({ job, expenses, categories, pl, jobs }) {
         <ResponsiveContainer>
           <PieChart>
             <Pie data={slices} dataKey="value" nameKey="name" innerRadius={58} outerRadius={104}
-                 paddingAngle={2} stroke="#FFFFFF" strokeWidth={2}>
+                 paddingAngle={2} stroke="#131B2E" strokeWidth={2}>
               {slices.map((s, i) => <Cell key={s.name} fill={s.net ? NET_GREEN : SPEND_RAMP[i % SPEND_RAMP.length]} />)}
             </Pie>
             <Tooltip content={<ChartTip total={total} />} />

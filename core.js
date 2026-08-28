@@ -62,10 +62,10 @@ function jobMetrics(j) {
 }
 
 function marginState(margin) {
-  if (margin === null || margin === undefined) return { color: '#8A97A5', label: 'No revenue yet' };
-  if (margin >= 30) return { color: '#0E7A4A', label: 'Healthy' };
-  if (margin >= 15) return { color: '#E0A100', label: 'Thin' };
-  return { color: '#BE2B1D', label: 'Losing money' };
+  if (margin === null || margin === undefined) return { color: '#5B657E', label: 'No revenue yet' };
+  if (margin >= 30) return { color: '#3DDC84', label: 'Healthy' };
+  if (margin >= 15) return { color: '#F5B942', label: 'Thin' };
+  return { color: '#FF6B6B', label: 'Losing money' };
 }
 
 /* ═══════════════════════════ the P&L ═══════════════════════════
@@ -196,7 +196,7 @@ function monthlySeries(revenueEntries, expenses, categories, depreciationFor) {
       categories,
       depreciationFor ? depreciationFor(k) : 0
     );
-    return { month: k, label: monthLabel(k), ...pl };
+    return { key: k, month: k, label: monthLabel(k), ...pl };
   });
 }
 
@@ -293,16 +293,16 @@ function Modal({ title, subtitle, onClose, children, wide }) {
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto"
-         style={{ background: 'rgba(12,26,45,.55)' }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={'bg-white w-full rounded-3xl lift fade-in my-auto ' + (wide ? 'max-w-3xl' : 'max-w-2xl')}
+         style={{ background: 'rgba(0,0,0,.66)' }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={'bg-panel w-full rounded-3xl lift fade-in my-auto ' + (wide ? 'max-w-3xl' : 'max-w-2xl')}
            role="dialog" aria-modal="true" aria-label={title}>
         <div className="flex items-start justify-between gap-4 px-5 sm:px-8 pt-6 pb-4 border-b border-line">
           <div className="min-w-0">
-            <h2 className="text-2xl sm:text-3xl font-black text-navy leading-tight break-words">{title}</h2>
+            <h2 className="text-2xl sm:text-3xl font-black text-lite leading-tight break-words">{title}</h2>
             {subtitle && <p className="text-sm text-muted font-semibold mt-1 break-words">{subtitle}</p>}
           </div>
           <button onClick={onClose} aria-label="Close"
-                  className="shrink-0 w-11 h-11 rounded-full bg-shell text-navy text-2xl font-black leading-none hover:bg-line">×</button>
+                  className="shrink-0 w-11 h-11 rounded-full bg-shell text-lite text-2xl font-black leading-none hover:bg-line">×</button>
         </div>
         <div className="px-5 sm:px-8 py-6">{children}</div>
       </div>
@@ -319,7 +319,7 @@ function Field({ label, hint, prefix, value, onChange, type = 'text', placeholde
         <input type={type} value={value} autoFocus={autoFocus} placeholder={placeholder}
           inputMode={inputMode || (type === 'number' ? 'decimal' : undefined)}
           onChange={e => onChange(e.target.value)}
-          className={'w-full rounded-2xl border-2 border-line bg-white font-bold text-ink transition '
+          className={'w-full rounded-2xl border-2 border-line bg-panel font-bold text-ink transition '
             + (big ? 'py-5 text-2xl ' : 'py-3.5 text-lg ') + (prefix ? 'pl-9 pr-4' : 'px-4')} />
       </div>
       {hint && <span className="block text-xs text-muted font-semibold mt-1.5">{hint}</span>}
@@ -332,7 +332,7 @@ function Select({ label, value, onChange, options, hint }) {
     <label className="block">
       <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">{label}</span>
       <select value={value} onChange={e => onChange(e.target.value)}
-              className="w-full rounded-2xl border-2 border-line bg-white px-4 py-3.5 text-lg font-bold text-ink">
+              className="w-full rounded-2xl border-2 border-line bg-panel px-4 py-3.5 text-lg font-bold text-ink">
         {options.map(o => <option key={o.v} value={o.v}>{o.t}</option>)}
       </select>
       {hint && <span className="block text-xs text-muted font-semibold mt-1.5">{hint}</span>}
@@ -342,9 +342,9 @@ function Select({ label, value, onChange, options, hint }) {
 
 function Btn({ children, onClick, tone = 'navy', size = 'md', className = '', type = 'button', disabled }) {
   const tones = {
-    navy: 'bg-navy text-white hover:bg-navyDeep', green: 'bg-money text-white hover:brightness-110',
-    orange: 'bg-orange text-navyDeep hover:brightness-105', ghost: 'bg-shell text-navy hover:bg-line',
-    white: 'bg-white text-navy hover:bg-shell', danger: 'bg-white text-danger hover:bg-shell'
+    navy: 'bg-panel2 text-white hover:bg-panel', green: 'bg-money text-[#0B1220] hover:brightness-110',
+    orange: 'bg-orange text-[#0B1220] hover:brightness-105', ghost: 'bg-shell text-lite hover:bg-line',
+    white: 'bg-panel text-lite hover:bg-shell', danger: 'bg-panel text-danger hover:bg-shell'
   };
   const sizes = {
     sm: 'px-3.5 py-2 text-sm rounded-xl', md: 'px-5 py-3 text-base rounded-2xl',
@@ -360,9 +360,9 @@ function Btn({ children, onClick, tone = 'navy', size = 'md', className = '', ty
 
 function Tile({ label, value, sub, color }) {
   return (
-    <div className="bg-white rounded-2xl card-shadow px-5 py-5">
+    <div className="bg-panel rounded-2xl card-shadow px-5 py-5">
       <div className="text-[11px] font-black uppercase tracking-[.08em] text-muted">{label}</div>
-      <div className="figure text-3xl sm:text-4xl font-black mt-1.5 leading-none" style={{ color: color || '#102D7F' }}>{value}</div>
+      <div className="figure text-3xl sm:text-4xl font-black mt-1.5 leading-none" style={{ color: color || '#8FA9FF' }}>{value}</div>
       {sub && <div className="text-xs font-bold text-muted mt-2">{sub}</div>}
     </div>
   );
@@ -372,7 +372,7 @@ function Mini({ label, value, color, note }) {
   return (
     <div className="px-4 py-4 text-center">
       <div className="text-[10px] font-black uppercase tracking-[.08em] text-muted">{label}</div>
-      <div className="figure text-2xl font-black mt-1" style={{ color: color || '#102D7F' }}>{value}</div>
+      <div className="figure text-2xl font-black mt-1" style={{ color: color || '#8FA9FF' }}>{value}</div>
       {note && <div className="text-[11px] font-black mt-0.5" style={{ color }}>{note}</div>}
     </div>
   );
@@ -380,10 +380,10 @@ function Mini({ label, value, color, note }) {
 
 function Banner({ tone = 'warn', children, onDismiss }) {
   const map = {
-    warn:  { bg: '#FFF8E6', bd: '#F0DCA0', fg: '#6B5200' },
-    error: { bg: '#FDECEA', bd: '#F3C0BA', fg: '#8A1F14' },
-    info:  { bg: '#EAF0FB', bd: '#C3D2EE', fg: '#102D7F' },
-    good:  { bg: '#E9F6EF', bd: '#B6DFC9', fg: '#0B5E39' }
+    warn:  { bg: '#2A2410', bd: '#5C4A14', fg: '#F5B942' },
+    error: { bg: '#2C1512', bd: '#63241E', fg: '#FF8A80' },
+    info:  { bg: '#13203A', bd: '#2A3550', fg: '#9FB4E8' },
+    good:  { bg: '#0F2A1C', bd: '#1F5238', fg: '#3DDC84' }
   }[tone];
   return (
     <div className="rounded-2xl px-5 py-4 font-bold text-sm flex items-start gap-3"
@@ -423,15 +423,15 @@ function BigCard({ bg, ink, icon, label, value, sub, foot }) {
 function MoneySplit({ pl }) {
   const total = Math.max(pl.revenue, 1);
   const seg = [
-    { label: 'Job costs',  value: pl.jobCosts,  color: '#5A6B7F' },
-    { label: 'Overhead',   value: pl.operating, color: '#8494A8' },
+    { label: 'Job costs',  value: pl.jobCosts,  color: '#8891A8' },
+    { label: 'Overhead',   value: pl.operating, color: '#A8B4CC' },
     { label: 'Below line', value: pl.belowLine + pl.depreciation + pl.draws + pl.tax, color: '#B9C4D0' },
-    { label: 'Net profit', value: Math.max(pl.netProfit, 0), color: '#17976B' }
+    { label: 'Net profit', value: Math.max(pl.netProfit, 0), color: '#3DDC84' }
   ].filter(s => s.value > 0);
 
   return (
-    <section className="bg-white rounded-3xl card-shadow p-5 sm:p-7">
-      <h3 className="text-xl font-black text-navy">Where every dollar went</h3>
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+      <h3 className="text-xl font-black text-lite">Where every dollar went</h3>
       <p className="text-sm text-muted font-semibold mt-1">Out of {moneyExact(pl.revenue)} collected.</p>
       {pl.revenue > 0 ? (
         <>
@@ -443,7 +443,7 @@ function MoneySplit({ pl }) {
                 <div key={s.label} style={{ width: w + '%', background: s.color }}
                      className={'flex items-center px-2 min-w-[3px] ' +
                        (i === 0 ? 'rounded-l-[4px] ' : '') + (i === seg.length - 1 ? 'rounded-r-[4px]' : '')}>
-                  {w >= 22 && <span className="text-white text-xs sm:text-sm font-black whitespace-nowrap">{moneyExact(s.value)}</span>}
+                  {w >= 22 && <span className="text-xs sm:text-sm font-black whitespace-nowrap" style={{ color: '#0B1220' }}>{moneyExact(s.value)}</span>}
                 </div>
               );
             })}
