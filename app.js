@@ -68,6 +68,74 @@ const BUCKET_ORDER = [
   { v: 'tax_reserve', t: 'Tax set-aside' }
 ];
 
+
+/* ═════════════ receipt scanner ═════════════
+   Reads the photo ON the phone (Tesseract OCR, loaded only when first used),
+   then guesses the total, the vendor and the cost category from what it read.
+   The guess fills the form; a person always checks it before saving. */
+
+let _tessPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (!_tessPromise) _tessPromise = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    el.onload = () => res(window.Tesseract); el.onerror = () => { _tessPromise = null; rej(new Error('Could not load the scanner.')); };
+    document.head.appendChild(el);
+  });
+  return _tessPromise;
+}
+
+async function ocrReceipt(file, onProgress) {
+  const T = await loadTesseract();
+  const worker = await T.createWorker('eng', 1, {
+    logger: m => { if (m.status === 'recognizing text' && onProgress) onProgress(m.progress); }
+  });
+  try {
+    const { data } = await worker.recognize(file);
+    return data.text || '';
+  } finally { await worker.terminate(); }
+}
+
+const SCAN_RULES = [
+  [['abc supply','beacon','srs distribution','roofing supply','shingle','gaf','owens corning','certainteed','lowe','home depot','lumber','84 lumber'], ['shingle','material']],
+  [['underlayment','felt','synthetic'], ['underlayment','material']],
+  [['shell','exxon','chevron','bp ','wawa','sunoco','circle k','racetrac','fuel','gasoline','diesel'], ['fuel']],
+  [['waste management','dumpster','disposal','landfill','hauling'], ['dumpster','disposal']],
+  [['permit','city of','county of'], ['permit']],
+  [['verizon','t-mobile','at&t','cell'], ['phone']],
+  [['geico','progressive','allstate','state farm','liberty mutual','insurance'], ['insurance','liability']],
+  [['sunbelt','united rentals','herc','rental'], ['rental']],
+  [['storage','public storage'], ['storage','office']]
+];
+
+function parseReceipt(text, categories) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const moneyRe = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}|[0-9]+\.[0-9]{2})/g;
+  let biggest = 0, totalLine = 0;
+  for (const l of lines) {
+    const isTotal = /total|amount due|balance due|grand total/i.test(l) && !/subtotal/i.test(l);
+    let m; moneyRe.lastIndex = 0;
+    while ((m = moneyRe.exec(l))) {
+      const v = parseFloat(m[1].replace(/,/g, ''));
+      if (!isFinite(v) || v <= 0 || v >= 1000000) continue;
+      if (isTotal && v > totalLine) totalLine = v;
+      if (v > biggest) biggest = v;
+    }
+  }
+  const vendor = (lines.find(l => /[A-Za-z]{3}/.test(l) && !/receipt|invoice|thank|welcome|order|date/i.test(l)) || '')
+    .replace(/[^A-Za-z0-9 .&'-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  const hay = text.toLowerCase();
+  let category_id = '';
+  for (const [keys, catKeys] of SCAN_RULES) {
+    if (keys.some(k => hay.includes(k))) {
+      const hit = categories.find(c => catKeys.some(ck => (c.name || '').toLowerCase().includes(ck)));
+      if (hit) { category_id = hit.id; break; }
+    }
+  }
+  return { amount: totalLine || biggest || 0, vendor, category_id };
+}
+
 /* ═════════════════ fast expense entry ═════════════════
    The spec is right that this decides whether the system survives. Target is
    under 15 seconds: amount is autofocused with a numeric keypad, categories
@@ -85,7 +153,21 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
   const [err, setErr] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
+  const [scanState, setScanState] = useState(null);   // null | 'reading' | 'done' | 'failed'
+  const [scanPct, setScanPct] = useState(0);
   const fileRef = useRef(null);
+
+  const scan = async picked => {
+    setScanState('reading'); setScanPct(0);
+    try {
+      const text = await ocrReceipt(picked, p => setScanPct(Math.round(p * 100)));
+      const guess = parseReceipt(text, categories);
+      if (guess.amount && !num(amount)) setAmount(String(guess.amount));
+      if (guess.vendor && !vendor) setVendor(guess.vendor);
+      if (guess.category_id && !catId) setCatId(guess.category_id);
+      setScanState(guess.amount || guess.vendor ? 'done' : 'failed');
+    } catch (e) { setScanState('failed'); }
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -188,10 +270,30 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
       <div className="mt-5">
         <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">Photo of the receipt</span>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment"
-               onChange={e => setFile(e.target.files && e.target.files[0])}
+               onChange={e => {
+                 const picked = e.target.files && e.target.files[0];
+                 setFile(picked);
+                 if (picked && picked.type.startsWith('image/') && navigator.onLine) scan(picked);
+               }}
                className="block w-full text-sm font-bold text-ink file:mr-4 file:py-4 file:px-5 file:rounded-xl file:border-0
                           file:bg-navy file:text-white file:font-black file:cursor-pointer" />
-        <p className="text-xs text-muted font-semibold mt-2">On a phone this opens the camera straight away.</p>
+        <p className="text-xs text-muted font-semibold mt-2">
+          On a phone this opens the camera. The app reads the photo right on the phone and fills in
+          the amount and vendor for you.
+        </p>
+        {scanState === 'reading' && (
+          <div className="mt-3"><Banner tone="info">Reading the receipt… {scanPct}%</Banner></div>
+        )}
+        {scanState === 'done' && (
+          <div className="mt-3"><Banner tone="good">
+            Read it. <b>Check the amount and category before saving</b> — the scanner guesses, you decide.
+          </Banner></div>
+        )}
+        {scanState === 'failed' && (
+          <div className="mt-3"><Banner tone="warn">
+            Couldn't read that photo well. Type the amount in, the picture still saves with the expense.
+          </Banner></div>
+        )}
       </div>
 
       {err && <div className="mt-4"><Banner tone="error">{err}</Banner></div>}
@@ -275,7 +377,7 @@ function MoneyOut({ expenses, categories, jobs, onAdd, onDelete, isAdmin, noteDi
               <div key={e.id} className="bg-white rounded-2xl card-shadow p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl grid place-items-center text-xl shrink-0"
                      style={{ background: isJob ? '#E8F1EC' : '#EEF2F6' }} aria-hidden="true">
-                  {e.receipt_url ? '🧾' : isJob ? '🔨' : '🏢'}
+                  {e._bill ? '🔁' : e.receipt_url ? '🧾' : isJob ? '🔨' : '🏢'}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="font-black text-ink truncate">{c.name}</div>
@@ -286,6 +388,8 @@ function MoneyOut({ expenses, categories, jobs, onAdd, onDelete, isAdmin, noteDi
                 <div className="figure text-xl font-black text-navy shrink-0">{moneyExact(e.amount)}</div>
                 {isAdmin && (e._legacy
                   ? <span className="text-[10px] font-black text-muted uppercase tracking-wide shrink-0 text-right leading-tight">From<br/>the job</span>
+                  : e._bill
+                  ? <span className="text-[10px] font-black text-muted uppercase tracking-wide shrink-0 text-right leading-tight">Fixed<br/>cost</span>
                   : <Btn tone="danger" size="sm" onClick={() => onDelete(e)}>Delete</Btn>)}
               </div>
             );
@@ -488,6 +592,154 @@ function TeamPanel({ people, meId, onSetRole, busyId }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ═════════════════════════ fixed costs ═════════════════════════
+   Set rent, workers comp, warranty, insurance once. They come out every
+   month on their own until switched off. */
+
+const BILL_PRESETS = [
+  { name: 'Rent',                    match: ['rent'] },
+  { name: 'Workers comp',            match: ['workers comp'] },
+  { name: 'Warranty reserve',        match: ['warranty'] },
+  { name: 'General liability',       match: ['general liability'] },
+  { name: 'Vehicle insurance',       match: ['vehicle insurance'] },
+  { name: 'Health insurance',        match: ['health insurance'] },
+  { name: 'Phone',                   match: ['phone'] },
+  { name: 'Software',                match: ['software'] },
+  { name: 'Fuel budget',             match: ['fuel'] },
+  { name: 'Storage',                 match: ['storage', 'office'] }
+];
+
+function findCategoryFor(preset, categories) {
+  for (const m of preset.match) {
+    const hit = categories.find(c => (c.name || '').toLowerCase().includes(m));
+    if (hit) return hit.id;
+  }
+  const fallback = categories.find(c => c.bucket === 'overhead');
+  return fallback ? fallback.id : '';
+}
+
+function BillForm({ initial, categories, onSave, onClose }) {
+  const [f, setF] = useState(initial || {
+    name: '', amount: '', frequency: 'monthly',
+    category_id: '', starts_on: todayISO().slice(0, 7) + '-01', is_active: true
+  });
+  const [busy, setBusy] = useState(false);
+  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const overheadCats = categories.filter(c => c.bucket !== 'job_cost' && c.is_active !== false);
+  const monthly = monthlyEquivalent(f);
+
+  return (
+    <>
+      {!initial && (
+        <div className="mb-5">
+          <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">Common ones, one tap</span>
+          <div className="flex flex-wrap gap-2">
+            {BILL_PRESETS.map(p => (
+              <button key={p.name}
+                onClick={() => setF(prev => ({ ...prev, name: p.name, category_id: findCategoryFor(p, categories) }))}
+                className={'px-3.5 py-2.5 rounded-xl font-black text-sm border-2 transition ' +
+                  (f.name === p.name ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-line hover:bg-shell')}>
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4">
+        <Field label="What is it?" value={f.name} onChange={set('name')} placeholder="Rent" autoFocus={!f.name} />
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="How much?" type="number" prefix="$" value={f.amount} onChange={set('amount')} placeholder="0" />
+          <Select label="How often?" value={f.frequency} onChange={set('frequency')}
+                  options={BILL_FREQS.map(x => ({ v: x.v, t: x.t }))} />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Select label="What kind of cost?" value={f.category_id} onChange={set('category_id')}
+                  options={[{ v: '', t: 'Pick one' }, ...overheadCats.map(c => ({ v: c.id, t: c.name }))]} />
+          <Field label="Started when?" type="month" value={String(f.starts_on || '').slice(0, 7)}
+                 onChange={v => set('starts_on')(v ? v + '-01' : '')}
+                 hint="It counts from this month forward." />
+        </div>
+      </div>
+
+      {num(f.amount) > 0 && (
+        <div className="mt-5"><Banner tone="info">
+          This takes <b>{moneyExact(monthly)}</b> out of the company every month, automatically.
+        </Banner></div>
+      )}
+
+      <div className="flex gap-3 justify-end mt-7">
+        <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn tone="green" size="lg" disabled={busy || !f.name.trim() || !num(f.amount) || !f.category_id}
+             onClick={async () => { setBusy(true); try { await onSave(f); } finally { setBusy(false); } }}>
+          {busy ? 'Saving…' : 'Save fixed cost'}
+        </Btn>
+      </div>
+    </>
+  );
+}
+
+function BillsPanel({ bills, categories, onAdd, onEdit, onToggle, onDelete }) {
+  const active = bills.filter(b => b.is_active !== false);
+  const totalMonthly = active.reduce((a, b) => a + monthlyEquivalent(b), 0);
+  const catName = id => (categories.find(c => c.id === id) || {}).name || 'Overhead';
+
+  return (
+    <div className="space-y-5">
+      <Banner tone="info">
+        Fixed costs come out <b>every month on their own</b>. Set rent, workers comp, warranty and
+        insurance here once, and stop logging them by hand. One-off buys still go through the orange + button.
+      </Banner>
+
+      <div className="grid gap-4 grid-cols-2">
+        <Tile label="Fixed costs per month" value={moneyExact(totalMonthly)} sub={`${active.length} active`} color="#BE2B1D" />
+        <Tile label="Per year" value={money(totalMonthly * 12)} sub="What fixed costs eat annually" />
+      </div>
+
+      <div className="flex justify-end">
+        <Btn tone="green" size="md" onClick={onAdd}>＋ Add fixed cost</Btn>
+      </div>
+
+      {bills.length === 0 ? (
+        <div className="bg-white rounded-3xl card-shadow p-10 text-center">
+          <div className="text-5xl mb-3" aria-hidden="true">🔁</div>
+          <h3 className="text-2xl font-black text-navy">No fixed costs yet</h3>
+          <p className="text-muted font-bold mt-2">Start with rent and workers comp. They'll hit the books every month automatically.</p>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {bills.map(b => {
+            const off = b.is_active === false;
+            return (
+              <div key={b.id} className={'bg-white rounded-2xl card-shadow p-4 flex items-center gap-4 ' + (off ? 'opacity-50' : '')}>
+                <div className="w-12 h-12 rounded-2xl grid place-items-center text-xl shrink-0 bg-shell" aria-hidden="true">🔁</div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-black text-ink truncate">{b.name}</div>
+                  <div className="text-xs font-bold text-muted truncate">
+                    {(BILL_FREQS.find(x => x.v === b.frequency) || {}).t || 'Every month'} · {catName(b.category_id)}
+                    {off ? ' · turned off' : ''}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="figure text-xl font-black text-navy">{moneyExact(b.amount)}</div>
+                  {b.frequency !== 'monthly' && (
+                    <div className="text-[10px] font-bold text-muted">{moneyExact(monthlyEquivalent(b))}/mo</div>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Btn tone="ghost" size="sm" onClick={() => onEdit(b)}>Edit</Btn>
+                  <Btn tone={off ? 'navy' : 'white'} size="sm" onClick={() => onToggle(b)}>{off ? 'Turn on' : 'Pause'}</Btn>
+                  <Btn tone="danger" size="sm" onClick={() => onDelete(b)}>Delete</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

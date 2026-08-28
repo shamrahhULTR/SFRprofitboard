@@ -69,6 +69,7 @@ function Dashboard({ session, profile, signOut }) {
   const [revenue, setRevenue] = useState([]);
   const [categories, setCategories] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [bills, setBills] = useState([]);
   const [people, setPeople] = useState([]);
   const [queue, setQueue] = useState(() => load(LS_QUEUE, []));
   const [recentCats, setRecentCats] = useState(() => load('sfr_pb_recent_cats', []));
@@ -91,6 +92,7 @@ function Dashboard({ session, profile, signOut }) {
       setJobs(load(LS_JOBS, [])); setMkt(load(LS_MKT, []));
       setExpenses(load(LS_EXP, [])); setRevenue(load(LS_REV, []));
       setCategories(load('sfr_pb_cats', DEFAULT_CATEGORIES));
+      setBills(load(LS_BILLS, []));
       setLoading(false); return;
     }
     try {
@@ -105,13 +107,14 @@ function Dashboard({ session, profile, signOut }) {
 
       let merged = jq.data || [];
       if (isAdmin) {
-        const [mq, kq, pq, eq, rq, aq] = await Promise.all([
+        const [mq, kq, pq, eq, rq, aq, bq] = await Promise.all([
           sb.from('job_money').select('*'),
           sb.from('marketing').select('*').order('created_at', { ascending: false }),
           sb.from('profiles').select('*').order('created_at'),
           sb.from('expenses').select('*').order('date', { ascending: false }),
           sb.from('revenue_entries').select('*').order('date', { ascending: false }),
-          sb.from('fixed_assets').select('*')
+          sb.from('fixed_assets').select('*'),
+          sb.from('recurring_expenses').select('*').order('created_at')
         ]);
         if (!mq.error) {
           const byId = {}; (mq.data || []).forEach(r => { byId[r.job_id] = r; });
@@ -122,6 +125,7 @@ function Dashboard({ session, profile, signOut }) {
         setExpenses(eq.error ? [] : (eq.data || []));
         setRevenue(rq.error ? [] : (rq.data || []));
         setAssets(aq.error ? [] : (aq.data || []));
+        setBills(bq.error ? [] : (bq.data || []));
       } else {
         // Crew sees only the expenses they logged themselves.
         const eq = await sb.from('expenses').select('*').order('date', { ascending: false });
@@ -139,6 +143,7 @@ function Dashboard({ session, profile, signOut }) {
   useEffect(() => { if (!CLOUD) persist(LS_MKT, mkt); }, [mkt]);
   useEffect(() => { if (!CLOUD) persist(LS_EXP, expenses); }, [expenses]);
   useEffect(() => { persist(LS_QUEUE, queue); }, [queue]);
+  useEffect(() => { if (!CLOUD) persist(LS_BILLS, bills); }, [bills]);
   useEffect(() => { persist('sfr_pb_recent_cats', recentCats); }, [recentCats]);
   useEffect(() => { persist('sfr_pb_taxnote', noteDismissed); }, [noteDismissed]);
 
@@ -176,7 +181,9 @@ function Dashboard({ session, profile, signOut }) {
     return rows;
   }, [jobs, expenses, categories]);
 
-  const allExpenses = useMemo(() => [...expenses, ...legacyJobCosts], [expenses, legacyJobCosts]);
+  const billExpenses = useMemo(() => billsAsExpenses(bills), [bills]);
+  const allExpenses = useMemo(() => [...expenses, ...legacyJobCosts, ...billExpenses],
+    [expenses, legacyJobCosts, billExpenses]);
 
   const depFor = useCallback(k => depreciationForMonth(assets, k), [assets]);
   const pl = useMemo(() => computePL(revenueRows, allExpenses, categories,
@@ -320,6 +327,40 @@ function Dashboard({ session, profile, signOut }) {
     if (r.error) setErr(r.error.message); else refresh();
   };
 
+  /* ── fixed costs ── */
+  const saveBill = async row => {
+    const base = { name: row.name.trim(), amount: num(row.amount), frequency: row.frequency,
+                   category_id: row.category_id, is_active: row.is_active !== false };
+    if (!CLOUD) {
+      const w = { ...base, starts_on: row.starts_on, id: row.id || uid(), created_at: row.created_at || todayISO() };
+      setBills(p => p.some(x => x.id === w.id) ? p.map(x => x.id === w.id ? w : x) : [...p, w]);
+      setModal(null); return;
+    }
+    // starts_on needs the v4 patch; fall back without it so nothing breaks.
+    let r = row.id
+      ? await sb.from('recurring_expenses').update({ ...base, starts_on: row.starts_on }).eq('id', row.id)
+      : await sb.from('recurring_expenses').insert({ ...base, starts_on: row.starts_on });
+    if (r.error && /starts_on/.test(r.error.message)) {
+      r = row.id
+        ? await sb.from('recurring_expenses').update(base).eq('id', row.id)
+        : await sb.from('recurring_expenses').insert(base);
+    }
+    if (r.error) setErr(r.error.message); else { setModal(null); refresh(); }
+  };
+
+  const toggleBill = async b => {
+    if (!CLOUD) { setBills(p => p.map(x => x.id === b.id ? { ...x, is_active: x.is_active === false } : x)); return; }
+    const r = await sb.from('recurring_expenses').update({ is_active: b.is_active === false }).eq('id', b.id);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
+  const delBill = async b => {
+    if (!window.confirm(`Delete "${b.name}"? Past months keep their history until you delete this; from now on it stops counting.`)) return;
+    if (!CLOUD) { setBills(p => p.filter(x => x.id !== b.id)); return; }
+    const r = await sb.from('recurring_expenses').delete().eq('id', b.id);
+    if (r.error) setErr(r.error.message); else refresh();
+  };
+
   /* ── documents ── */
   const uploadDoc = async ({ job, file, kind, label, amount }) => {
     const path = `${job.id}/${Date.now()}-${safeName(file.name)}`;
@@ -354,6 +395,7 @@ function Dashboard({ session, profile, signOut }) {
     { v: 'out',  t: 'Money Out', icon: '🧾' },
     { v: 'jobs', t: 'Jobs',      icon: '🏠' },
     ...(isAdmin ? [{ v: 'charts', t: 'Charts', icon: '📈' }] : []),
+    ...(isAdmin ? [{ v: 'bills', t: 'Fixed Costs', icon: '🔁' }] : []),
     ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: '📣' }] : []),
     ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: '👥' }] : [])
   ];
@@ -482,6 +524,14 @@ function Dashboard({ session, profile, signOut }) {
             </div>
           )}
 
+          {/* ── FIXED COSTS ── */}
+          {tab === 'bills' && isAdmin && (
+            <BillsPanel bills={bills} categories={categories}
+                        onAdd={() => setModal({ kind: 'bill' })}
+                        onEdit={row => setModal({ kind: 'bill', row })}
+                        onToggle={toggleBill} onDelete={delBill} />
+          )}
+
           {/* ── MONEY OUT ── */}
           {tab === 'out' && (
             <MoneyOut expenses={allExpenses} categories={categories} jobs={jobs}
@@ -591,6 +641,12 @@ function Dashboard({ session, profile, signOut }) {
         <Modal title="Add an expense" subtitle="Amount, what it was for, snap the receipt." onClose={() => setModal(null)}>
           <FastExpense categories={categories} jobs={jobs} recentIds={recentCats}
                        isAdmin={isAdmin} onSaved={saveExpense} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.kind === 'bill' && (
+        <Modal title={modal.row ? 'Edit fixed cost' : 'Add a fixed cost'}
+               subtitle="Comes out every month on its own." onClose={() => setModal(null)}>
+          <BillForm initial={modal.row} categories={categories} onSave={saveBill} onClose={() => setModal(null)} />
         </Modal>
       )}
       {modal?.kind === 'job' && (

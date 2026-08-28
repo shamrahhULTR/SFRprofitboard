@@ -4,7 +4,7 @@
    reload when a new worker takes over causes the double-reload we hit on the
    roof planner. */
 
-const CACHE = 'sfr-profit-board-v5';
+const CACHE = 'sfr-profit-board-v6';
 
 const SHELL = [
   './',
