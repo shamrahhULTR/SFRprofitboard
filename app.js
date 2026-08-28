@@ -646,25 +646,36 @@ function TeamPanel({ people, meId, onSetRole, busyId }) {
    month on their own until switched off. */
 
 const BILL_PRESETS = [
-  { name: 'Rent',                    match: ['rent'] },
-  { name: 'Workers comp',            match: ['workers comp'] },
-  { name: 'Warranty reserve',        match: ['warranty'] },
-  { name: 'General liability',       match: ['general liability'] },
-  { name: 'Vehicle insurance',       match: ['vehicle insurance'] },
-  { name: 'Health insurance',        match: ['health insurance'] },
-  { name: 'Phone',                   match: ['phone'] },
-  { name: 'Software',                match: ['software'] },
-  { name: 'Fuel budget',             match: ['fuel'] },
-  { name: 'Storage',                 match: ['storage', 'office'] }
+  { name: 'Rent',              match: ['rent — office', 'rent — warehouse', 'rent', 'building lease'] },
+  { name: 'Workers comp',      match: ['workers comp'] },
+  { name: 'Warranty reserve',  match: ['warranty'] },
+  { name: 'General liability', match: ['general liability'] },
+  { name: 'Vehicle insurance', match: ['vehicle insurance'] },
+  { name: 'Health insurance',  match: ['health insurance'] },
+  { name: 'Phone',             match: ['phone'] },
+  { name: 'Internet',          match: ['internet'] },
+  { name: 'Software',          match: ['software'] },
+  { name: 'Utilities',         match: ['utilities'] },
+  { name: 'Storage',           match: ['storage'] },
+  { name: 'Licensing',         match: ['licensing'] },
+  { name: 'Marketing retainer',match: ['marketing retainer'] },
+  { name: 'Loan payment',      match: ['loan interest', 'equipment financing'] }
 ];
 
+/* Match the preset to a real category, precisely. Two rules learned the hard
+   way: "Rent" must not match "Equipment rental" just because the letters are
+   in there, and a miss must return nothing rather than falling back to
+   whatever overhead category happens to be first — that fallback is what
+   filed rent under Insurance. */
 function findCategoryFor(preset, categories) {
+  const pool = categories.filter(c => c.is_active !== false && c.bucket !== 'job_cost');
+  const norm = t => (t || '').toLowerCase();
   for (const m of preset.match) {
-    const hit = categories.find(c => (c.name || '').toLowerCase().includes(m));
+    const hit = pool.find(c => norm(c.name).startsWith(m)) ||
+                pool.find(c => new RegExp('\\b' + m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(norm(c.name)));
     if (hit) return hit.id;
   }
-  const fallback = categories.find(c => c.bucket === 'overhead');
-  return fallback ? fallback.id : '';
+  return '';   // no guess is better than a wrong guess
 }
 
 function BillForm({ initial, categories, onSave, onClose }) {
@@ -703,7 +714,7 @@ function BillForm({ initial, categories, onSave, onClose }) {
                   options={BILL_FREQS.map(x => ({ v: x.v, t: x.t }))} />
         </div>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Select label="What kind of cost?" value={f.category_id} onChange={set('category_id')}
+          <Select label="What kind of cost is it?" value={f.category_id} onChange={set('category_id')}
                   options={[{ v: '', t: 'Pick one' }, ...overheadCats.map(c => ({ v: c.id, t: c.name }))]} />
           <Field label="Started when?" type="month" value={String(f.starts_on || '').slice(0, 7)}
                  onChange={v => set('starts_on')(v ? v + '-01' : '')}

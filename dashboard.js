@@ -134,7 +134,12 @@ function Dashboard({ session, profile, signOut }) {
         setMkt([]); setPeople([]); setRevenue([]); setAssets([]);
       }
       setJobs(merged);
-    } catch (e) { setErr(e.message || 'Could not load your data.'); }
+    } catch (e) {
+      const m = e.message || 'Could not load your data.';
+      setErr(/schema cache|does not exist|relation .* does not/i.test(m)
+        ? 'The database is missing a table this screen needs. Open Supabase, run supabase-all-in-one.sql once, then reload.'
+        : m);
+    }
     setLoading(false);
   }, [isAdmin]);
 
@@ -325,7 +330,10 @@ function Dashboard({ session, profile, signOut }) {
                    demos: num(row.demos), closes: num(row.closes) };
     const r = row.id ? await sb.from('marketing').update(base).eq('id', row.id)
                      : await sb.from('marketing').insert({ ...base, created_by: meId });
-    if (r.error) setErr(r.error.message); else { setModal(null); refresh(); }
+    if (r.error) setErr(/schema cache|does not exist/i.test(r.error.message)
+      ? 'Fixed costs need one more setup step: run supabase-all-in-one.sql in Supabase, then reload.'
+      : r.error.message);
+    else { setModal(null); refresh(); }
   };
 
   const delMkt = async r0 => {
@@ -799,18 +807,52 @@ function Dashboard({ session, profile, signOut }) {
 }
 
 // Used only when there's no backend, so the app still works on one device.
+/* Used when the database has no category table yet, so the dropdown is never
+   empty and "what kind of cost is rent?" always has an answer. Mirrors the
+   real seed in supabase-v3-categories.sql. */
 const DEFAULT_CATEGORIES = [
-  { id: 'c1', name: 'Shingles & materials', bucket: 'job_cost', excluded_from_ebitda: false },
-  { id: 'c2', name: 'Labor / subs',         bucket: 'job_cost', excluded_from_ebitda: false },
-  { id: 'c3', name: 'Dumpster & disposal',  bucket: 'job_cost', excluded_from_ebitda: false },
-  { id: 'c4', name: 'Permits',              bucket: 'job_cost', excluded_from_ebitda: false },
-  { id: 'c5', name: 'Fuel',                 bucket: 'overhead', excluded_from_ebitda: false },
-  { id: 'c6', name: 'Insurance',            bucket: 'overhead', excluded_from_ebitda: false },
-  { id: 'c7', name: 'Software / SaaS',      bucket: 'overhead', excluded_from_ebitda: false },
-  { id: 'c8', name: 'Google Ads spend',     bucket: 'overhead', excluded_from_ebitda: false },
-  { id: 'c9', name: 'Loan interest',        bucket: 'overhead', excluded_from_ebitda: true },
-  { id: 'c10', name: 'Owner draw',          bucket: 'owner_draw', excluded_from_ebitda: true },
-  { id: 'c11', name: 'Tax set-aside',       bucket: 'tax_reserve', excluded_from_ebitda: true }
+  // job costs
+  { id: 'c1',  name: 'Shingles & materials',      bucket: 'job_cost',    excluded_from_ebitda: false },
+  { id: 'c2',  name: 'Underlayment & accessories',bucket: 'job_cost',    excluded_from_ebitda: false },
+  { id: 'c3',  name: 'Labor / subs',              bucket: 'job_cost',    excluded_from_ebitda: false },
+  { id: 'c4',  name: 'Dumpster & disposal',       bucket: 'job_cost',    excluded_from_ebitda: false },
+  { id: 'c5',  name: 'Permits',                   bucket: 'job_cost',    excluded_from_ebitda: false },
+  { id: 'c6',  name: 'Equipment rental',          bucket: 'job_cost',    excluded_from_ebitda: false },
+  // building — this is what rent is
+  { id: 'c10', name: 'Rent — office',             bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c11', name: 'Rent — warehouse / yard',   bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c12', name: 'Utilities',                 bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c13', name: 'Storage units',             bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c14', name: 'Internet',                  bucket: 'overhead',    excluded_from_ebitda: false },
+  // people
+  { id: 'c20', name: 'Staff pay (non-job)',       bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c21', name: 'Workers comp',              bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c22', name: 'Health insurance',          bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c23', name: 'Payroll taxes (employer)',  bucket: 'overhead',    excluded_from_ebitda: false },
+  // insurance & compliance
+  { id: 'c30', name: 'General liability insurance',bucket: 'overhead',   excluded_from_ebitda: false },
+  { id: 'c31', name: 'Vehicle insurance',         bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c32', name: 'Licensing & bonding',       bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c33', name: 'Warranty reserve',          bucket: 'overhead',    excluded_from_ebitda: false },
+  // trucks & tools
+  { id: 'c40', name: 'Fuel',                      bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c41', name: 'Vehicle maintenance',       bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c42', name: 'Tools & small equipment',   bucket: 'overhead',    excluded_from_ebitda: false },
+  // running the office
+  { id: 'c50', name: 'Software / SaaS',           bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c51', name: 'Phone',                     bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c52', name: 'Accounting & legal',        bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c53', name: 'Bank & processing fees',    bucket: 'overhead',    excluded_from_ebitda: false },
+  // marketing
+  { id: 'c60', name: 'Google Ads spend',          bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c61', name: 'Marketing retainer',        bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c62', name: 'Signs, wraps & print',      bucket: 'overhead',    excluded_from_ebitda: false },
+  // below the EBITDA line
+  { id: 'c70', name: 'Loan interest',             bucket: 'overhead',    excluded_from_ebitda: true },
+  { id: 'c71', name: 'Equipment financing interest', bucket: 'overhead', excluded_from_ebitda: true },
+  { id: 'c72', name: 'Depreciation',              bucket: 'overhead',    excluded_from_ebitda: true },
+  { id: 'c80', name: 'Owner draw',                bucket: 'owner_draw',  excluded_from_ebitda: true },
+  { id: 'c90', name: 'Tax set-aside',             bucket: 'tax_reserve', excluded_from_ebitda: true }
 ];
 
 /* ═════════════════════════ app shell ═════════════════════════ */
