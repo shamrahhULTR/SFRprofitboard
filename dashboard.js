@@ -63,6 +63,7 @@ function Dashboard({ session, profile, signOut }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [moneySub, setMoneySub] = useState('spend');   // spend | fixed (mobile Money tab)
   const [milestone, setMilestone] = useState(null);
+  const [cloudMissing, setCloudMissing] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [mkt, setMkt] = useState([]);
   const [docs, setDocs] = useState([]);
@@ -123,10 +124,15 @@ function Dashboard({ session, profile, signOut }) {
         }
         setMkt(kq.error ? [] : (kq.data || []));
         setPeople(pq.error ? [] : (pq.data || []));
-        setExpenses(eq.error ? [] : (eq.data || []));
+        // PGRST205 = the table isn't installed in this project yet. Rather than
+        // block spending entry on a migration, keep working from this device.
+        const missing = e => e && (e.code === 'PGRST205' || /schema cache/i.test(e.message || ''));
+        const noTables = missing(eq.error) || missing(bq.error);
+        setCloudMissing(noTables);
+        setExpenses(eq.error ? (noTables ? load(LS_EXP, []) : []) : (eq.data || []));
         setRevenue(rq.error ? [] : (rq.data || []));
         setAssets(aq.error ? [] : (aq.data || []));
-        setBills(bq.error ? [] : (bq.data || []));
+        setBills(bq.error ? (noTables ? load(LS_BILLS, []) : []) : (bq.data || []));
       } else {
         // Crew sees only the expenses they logged themselves.
         const eq = await sb.from('expenses').select('*').order('date', { ascending: false });
@@ -149,6 +155,7 @@ function Dashboard({ session, profile, signOut }) {
   useEffect(() => { if (!CLOUD) persist(LS_MKT, mkt); }, [mkt]);
   useEffect(() => { if (!CLOUD) persist(LS_EXP, expenses); }, [expenses]);
   useEffect(() => { persist(LS_QUEUE, queue); }, [queue]);
+  useEffect(() => { if (CLOUD && cloudMissing) persist(LS_EXP, expenses.filter(e => e._local)); }, [expenses, cloudMissing]);
   useEffect(() => { if (!CLOUD) persist(LS_BILLS, bills); }, [bills]);
   useEffect(() => { persist('sfr_pb_recent_cats', recentCats); }, [recentCats]);
   useEffect(() => { persist('sfr_pb_taxnote', noteDismissed); }, [noteDismissed]);
@@ -251,7 +258,17 @@ function Dashboard({ session, profile, signOut }) {
       receipt_url = path;
     }
     const r = await sb.from('expenses').insert({ ...row, receipt_url, created_by: meId });
-    if (r.error) throw r.error;
+    if (r.error) {
+      const missing = r.error.code === 'PGRST205' || /schema cache/i.test(r.error.message || '');
+      if (!missing) throw r.error;
+      // Table not installed yet: keep it on this device so nothing is lost.
+      setCloudMissing(true);
+      setExpenses(p => {
+        const next = [{ ...row, receipt_url, id: uid(), created_at: Date.now(), _local: true }, ...p];
+        persist(LS_EXP, next); return next;
+      });
+      return;
+    }
     // Best-effort: keep the model's raw read next to what the human actually
     // saved, so the prompt can be improved by seeing where it was wrong.
     if (scan) {
@@ -372,6 +389,15 @@ function Dashboard({ session, profile, signOut }) {
     let r = row.id
       ? await sb.from('recurring_expenses').update({ ...base, starts_on: row.starts_on }).eq('id', row.id)
       : await sb.from('recurring_expenses').insert({ ...base, starts_on: row.starts_on });
+    if (r.error && (r.error.code === 'PGRST205' || /schema cache/i.test(r.error.message || ''))) {
+      setCloudMissing(true);
+      setBills(p => {
+        const w = { ...base, starts_on: row.starts_on, id: row.id || uid(), created_at: todayISO() };
+        const next = p.some(x => x.id === w.id) ? p.map(x => x.id === w.id ? w : x) : [...p, w];
+        persist(LS_BILLS, next); return next;
+      });
+      setModal(null); return;
+    }
     if (r.error && /starts_on/.test(r.error.message)) {
       r = row.id
         ? await sb.from('recurring_expenses').update(base).eq('id', row.id)
@@ -516,6 +542,14 @@ function Dashboard({ session, profile, signOut }) {
           {err && <Banner tone="error">{err}</Banner>}
           {queue.length > 0 && <Banner tone="warn">{queue.length} expense{queue.length > 1 ? 's' : ''} saved on this phone, waiting for signal.</Banner>}
           {!CLOUD && <Banner tone="warn">Saving to this device only. Open <b>config.js</b> to turn on sign-in.</Banner>}
+          {CLOUD && cloudMissing && (
+            <Banner tone="warn">
+              <b>Spending is saving to this device only.</b> The expense tables aren't installed in
+              your Supabase project yet, so what you enter here won't reach your partners. Run
+              <b> supabase-fix-now.sql</b> in project <b>qtgvmsepymifpoamndoo</b> and it starts
+              syncing. Nothing you type in the meantime is lost.
+            </Banner>
+          )}
 
           {/* ── DASHBOARD ── */}
           {tab === 'dash' && (isAdmin ? (
