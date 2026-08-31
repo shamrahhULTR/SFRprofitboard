@@ -500,10 +500,18 @@ function Dashboard({ session, profile, signOut }) {
   const papersJob = modal?.kind === 'docs' ? jobs.find(j => j.id === modal.row.id) : null;
 
   /* ── the owner split: banked on installed jobs, projected on everything ── */
+  // Everything the company spends that isn't already a job cost, and isn't the
+  // owners paying themselves. This is the pot each job carries a share of.
+  const ownerCtx = useMemo(() => ({
+    overhead: pl.operating + pl.belowLine + pl.depreciation + pl.tax,
+    totalRevenue: pl.revenue
+  }), [pl]);
+
   const owners = useMemo(() => {
-    const acc = { installed: 0, projected: 0, companyInstalled: 0, companyProjected: 0, exemptCount: 0 };
+    const acc = { installed: 0, projected: 0, companyInstalled: 0, companyProjected: 0,
+                  exemptCount: 0, overhead: ownerCtx.overhead };
     jobs.forEach(j => {
-      const sp = ownerSplit(j, expensesForJob(j.id));
+      const sp = ownerSplit(j, expensesForJob(j.id), ownerCtx);
       if (!sp.revenue) return;
       acc.projected += sp.ownerPool;
       acc.companyProjected += sp.companyCut;
@@ -511,7 +519,7 @@ function Dashboard({ session, profile, signOut }) {
       if (j.done) { acc.installed += sp.ownerPool; acc.companyInstalled += sp.companyCut; }
     });
     return acc;
-  }, [jobs, expensesForJob]);
+  }, [jobs, expensesForJob, ownerCtx]);
 
   /* ── instrument cluster: this month vs the best month so far ── */
   const nowKey = monthKey(todayISO());
@@ -738,8 +746,24 @@ function Dashboard({ session, profile, signOut }) {
                 <Tile label="Company keeps, installed" value={money(owners.companyInstalled)} sub="The 20%" />
                 <Tile label="Company keeps, projected" value={money(owners.companyProjected)} sub="If everything closes" />
               </div>
+              <div className="mt-4 rounded-2xl border border-line px-5 py-4">
+                <div className="text-[10px] font-black uppercase tracking-[.12em] text-muted">How the split works</div>
+                <div className="font-mono text-xs sm:text-sm text-ink mt-2 leading-relaxed">
+                  profit &nbsp;=&nbsp; what they paid &nbsp;−&nbsp; materials &nbsp;−&nbsp; labor &nbsp;−&nbsp; dumpster<br />
+                  company &nbsp;=&nbsp; profit &nbsp;×&nbsp; 20%<br />
+                  <span style={{ color: '#FF6B1A' }}>owners &nbsp;=&nbsp; profit &nbsp;×&nbsp; 80%</span>
+                </div>
+                <p className="text-xs font-bold text-muted mt-3 leading-relaxed">
+                  The 20% is taken <b className="text-ink">after materials and labor</b>, before overhead.
+                  Tap any job to see its working line by line. Each job also shows what it carries of the
+                  company's <b className="text-ink">{moneyExact(owners.overhead)}</b> of overhead — rent,
+                  insurance, fuel, wages, ads — so you can see the true bottom line, but that does not
+                  change the 20%. Owner draws are excluded: draws are the owners paying themselves out of
+                  this pool, so counting them would take the same money twice.
+                </p>
+              </div>
               <p className="text-xs font-bold text-muted mt-3">
-                The company keeps 20% of each job's profit and the owners take the rest.
+                20% of profit after materials and labor.
                 {owners.exemptCount > 0 && ` ${owners.exemptCount} job${owners.exemptCount > 1 ? 's are' : ' is'} carved out and pay${owners.exemptCount > 1 ? '' : 's'} no company cut.`}
                 {' '}Flip it per job in Edit. A job that loses money takes no cut.
               </p>
@@ -796,7 +820,7 @@ function Dashboard({ session, profile, signOut }) {
                   {jobs.map(j => (
                     <JobCard key={j.id} j={j} isAdmin={isAdmin}
                              docCount={docs.filter(d => d.job_id === j.id).length}
-                             expenseTotal={expensesForJob(j.id)}
+                             expenseTotal={expensesForJob(j.id)} ownerCtx={ownerCtx}
                              onToggle={toggleJob} onEdit={row => setModal({ kind: 'job', row })}
                              onDelete={delJob} onPapers={row => setModal({ kind: 'docs', row })} />
                   ))}

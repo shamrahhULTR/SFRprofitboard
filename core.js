@@ -84,13 +84,36 @@ function isOwnerCutExempt(j) {
   return OWNER_EXEMPT_NAMES.some(k => n.includes(k));
 }
 
-/* Profit on the job, then how it splits. A job that loses money takes no
-   company cut — the owners absorb it — rather than billing 20% of a loss. */
-function ownerSplit(j, extraCost) {
+/* The company takes 20% of a job's profit AFTER materials and labor.
+
+   Overhead is split across jobs by share of revenue: a job that is 30% of the
+   revenue absorbs 30% of the overhead. That is reported for visibility only —
+   the 20% is not reduced by it. Owner draws are deliberately not in the
+   overhead pot: draws are the owners paying themselves out of this very pool.
+
+       profit     = revenue − materials − labor − dumpster
+       company    = profit × 20%       (0 on a carve-out, 0 on a loss)
+       owners     = profit − company
+
+   Overhead is still worked out per job and shown, so the true bottom line is
+   visible, but it does NOT reduce the 20% — the cut is taken after materials
+   and labor, before overhead.
+
+   ctx = { overhead, totalRevenue }. Without it, overhead is 0 and this falls
+   back to the gross-profit split. */
+function ownerSplit(j, extraCost, ctx) {
   const m = jobMetrics({ ...j, direct_costs: num(extraCost) });
+  const totalRevenue = ctx ? num(ctx.totalRevenue) : 0;
+  const share = totalRevenue > 0 ? m.revenue / totalRevenue : 0;
+  const overheadShare = ctx ? num(ctx.overhead) * share : 0;
   const exempt = isOwnerCutExempt(j);
+  // The cut is taken off profit after materials and labor, before overhead.
   const companyCut = exempt ? 0 : Math.max(m.profit, 0) * COMPANY_CUT;
-  return { ...m, exempt, companyCut, ownerPool: m.profit - companyCut };
+  const ownerPool = m.profit - companyCut;
+  // Reported for visibility: what's genuinely left once overhead is carried.
+  const net = m.profit - overheadShare;
+  return { ...m, exempt, share, overheadShare, net, companyCut, ownerPool,
+           trueNet: ownerPool - overheadShare };
 }
 
 function jobMetrics(j) {

@@ -447,8 +447,22 @@ function MoneyOut({ expenses, categories, jobs, onAdd, onDelete, isAdmin, noteDi
 
 /* ═════════════════════════ jobs ═════════════════════════ */
 
-function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
-  const m = ownerSplit(j, expenseTotal);
+function MathRow({ label, value, bold, accent }) {
+  const neg = value < 0;
+  return (
+    <div className={'flex items-baseline justify-between gap-3 py-1.5 ' + (bold ? 'border-t border-line mt-1 pt-2' : '')}>
+      <span className={'text-xs ' + (bold ? 'font-black text-ink' : 'font-bold text-muted')}>{label}</span>
+      <span className={'tnum shrink-0 ' + (bold ? 'text-sm font-black' : 'text-xs font-bold')}
+            style={{ color: accent ? '#FF6B1A' : neg ? '#8891A8' : bold ? '#F2F0EA' : '#8891A8' }}>
+        {neg ? '− ' : ''}{moneyExact(Math.abs(value))}
+      </span>
+    </div>
+  );
+}
+
+function JobCard({ j, docCount, expenseTotal, ownerCtx, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
+  const m = ownerSplit(j, expenseTotal, ownerCtx);
+  const [showMath, setShowMath] = useState(false);
   const st = marginState(m.margin);
   return (
     <div className="bg-panel rounded-3xl card-shadow p-5">
@@ -489,20 +503,57 @@ function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelet
         </>
       )}
       {isAdmin && m.revenue > 0 && (
-        <div className="mt-3 rounded-2xl border border-line px-4 py-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Owners take</div>
-            <div className="figure text-xl font-black mt-0.5" style={{ color: '#FF6B1A' }}>{moneyExact(m.ownerPool)}</div>
-          </div>
-          <div className="text-right shrink-0">
-            {m.exempt
-              ? <span className="text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full"
-                      style={{ background: '#2A2410', color: '#F5B942' }}>No company cut</span>
-              : <>
-                  <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Company 20%</div>
-                  <div className="tnum text-sm font-black text-ink mt-0.5">{moneyExact(m.companyCut)}</div>
-                </>}
-          </div>
+        <div className="mt-3 rounded-2xl border border-line overflow-hidden">
+          <button onClick={() => setShowMath(v => !v)}
+                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left">
+            <span className="min-w-0">
+              <span className="block text-[10px] font-black uppercase tracking-[.1em] text-muted">Owners take</span>
+              <span className="figure text-xl font-black mt-0.5 block" style={{ color: '#FF6B1A' }}>{moneyExact(m.ownerPool)}</span>
+            </span>
+            <span className="text-right shrink-0 flex items-center gap-2">
+              <span>
+                {m.exempt
+                  ? <span className="text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full"
+                          style={{ background: '#2A2410', color: '#F5B942' }}>No company cut</span>
+                  : <>
+                      <span className="block text-[10px] font-black uppercase tracking-[.1em] text-muted">Company 20%</span>
+                      <span className="tnum text-sm font-black text-ink mt-0.5 block">{moneyExact(m.companyCut)}</span>
+                    </>}
+              </span>
+              <span className="text-muted text-xs font-black">{showMath ? '▲' : '▼'}</span>
+            </span>
+          </button>
+
+          {/* The working, so the number is never a black box. */}
+          {showMath && (
+            <div className="px-4 pb-4 pt-1 border-t border-line">
+              <MathRow label="They paid" value={m.revenue} />
+              <MathRow label="Materials, labor and dumpster" value={-m.cost} />
+              <MathRow label="Profit after materials and labor" value={m.profit} bold />
+              <MathRow label={m.exempt ? 'Company cut (carved out, none taken)' : 'Company keeps 20%'}
+                       value={-m.companyCut} />
+              <MathRow label="Owners take" value={m.ownerPool} bold accent />
+
+              <p className="text-[11px] font-bold text-muted mt-3 leading-relaxed">
+                {m.exempt
+                  ? 'This job is carved out, so the owners keep the whole profit. Change it in Edit.'
+                  : `${moneyExact(m.profit)} × 20% = ${moneyExact(m.companyCut)} to the company, ${moneyExact(m.ownerPool)} to the owners.`}
+                {m.profit < 0 && ' This job is under water, so no company cut is taken.'}
+              </p>
+
+              {m.overheadShare > 0 && (
+                <div className="mt-3 pt-3 border-t border-line">
+                  <MathRow label={`This job's share of overhead (${Math.round(m.share * 100)}% of the company's)`}
+                           value={-m.overheadShare} />
+                  <MathRow label="Left after overhead too" value={m.trueNet} bold />
+                  <p className="text-[11px] font-bold text-muted mt-2 leading-relaxed">
+                    Shown so you can see the real bottom line. It does not change the 20%,
+                    which is taken after materials and labor.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
