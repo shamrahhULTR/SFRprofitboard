@@ -316,6 +316,7 @@ function Dashboard({ session, profile, signOut }) {
                      lead_source: row.lead_source || null };
       if (isAdmin) {
         base.contract_total = num(row.contract_total);
+        base.amount_collected = num(row.amount_collected);
         base.payment_type = row.payment_type || null;
       }
       let id = row.id;

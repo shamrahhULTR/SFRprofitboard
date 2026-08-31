@@ -11,6 +11,16 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin');
 $$;
 
+-- ── 0. Columns the app writes that the original jobs table never had ──
+alter table public.jobs
+  add column if not exists contract_total        numeric(12,2) not null default 0,
+  add column if not exists amount_collected      numeric(12,2) not null default 0,
+  add column if not exists payment_type          text,
+  add column if not exists lender_name           text,
+  add column if not exists expected_funding_date date,
+  add column if not exists lead_source           text,
+  add column if not exists installed_on          date;
+
 -- ── 1. The list of cost types (this is what "what kind of cost?" reads) ──
 create table if not exists public.expense_categories (
   id                   uuid primary key default gen_random_uuid(),

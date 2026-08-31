@@ -497,7 +497,7 @@ function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelet
   );
 }
 
-const EMPTY_JOB = { name: '', squares: '', contract_total: '', material: '', labor: '', dumpster: '', done: true, lead_source: '' };
+const EMPTY_JOB = { name: '', squares: '', contract_total: '', amount_collected: '', material: '', labor: '', dumpster: '', done: true, lead_source: '' };
 
 function JobForm({ initial, onSave, onClose, isAdmin }) {
   const [f, setF] = useState(initial ? { ...initial } : EMPTY_JOB);
@@ -521,6 +521,22 @@ function JobForm({ initial, onSave, onClose, isAdmin }) {
                    placeholder="0" hint="What the customer agreed to pay" />
             <Select label="How are they paying?" value={f.payment_type || ''} onChange={set('payment_type')}
                     options={[{ v: '', t: 'Not set' }, { v: 'cash', t: 'Cash' }, { v: 'check', t: 'Check' }, { v: 'financed', t: 'Financed' }]} />
+          </div>
+        )}
+
+        {/* What has actually landed in the bank, as opposed to what was signed. */}
+        {isAdmin && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Money collected so far" type="number" prefix="$"
+                   value={f.amount_collected || ''} onChange={set('amount_collected')} placeholder="0"
+                   hint="Deposit + any checks cashed" />
+            <div className="rounded-2xl border-2 border-line px-4 py-3 flex flex-col justify-center">
+              <span className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Still owed</span>
+              <span className="figure text-2xl font-black mt-0.5"
+                    style={{ color: (num(f.contract_total) - num(f.amount_collected)) > 0 ? '#F5B942' : '#3DDC84' }}>
+                {moneyExact(Math.max(num(f.contract_total) - num(f.amount_collected), 0))}
+              </span>
+            </div>
           </div>
         )}
 
