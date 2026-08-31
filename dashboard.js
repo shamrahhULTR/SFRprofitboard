@@ -87,6 +87,43 @@ function Dashboard({ session, profile, signOut }) {
   const [grain, setGrain] = useState('day');
   const [running, setRunning] = useState(true);
 
+  /* Move anything saved on this device up to Supabase, once. Matching on
+     name+amount so re-running can't create duplicates. */
+  const pushLocalUp = useCallback(async (cloudExpenses, cloudBills) => {
+    let moved = false;
+
+    const localBills = load(LS_BILLS, []).filter(b => b && b.name);
+    if (localBills.length) {
+      const already = new Set((cloudBills || []).map(b => `${(b.name||'').toLowerCase()}|${num(b.amount)}`));
+      const toAdd = localBills.filter(b => !already.has(`${(b.name||'').toLowerCase()}|${num(b.amount)}`));
+      if (toAdd.length) {
+        const r = await sb.from('recurring_expenses').insert(toAdd.map(b => ({
+          name: b.name, amount: num(b.amount), frequency: b.frequency || 'monthly',
+          category_id: b.category_id || null, starts_on: b.starts_on || todayISO(),
+          is_active: b.is_active !== false
+        })));
+        if (!r.error) moved = true;
+      }
+      if (!toAdd.length || moved) { try { localStorage.removeItem(LS_BILLS); } catch (e) {} }
+    }
+
+    const localExp = load(LS_EXP, []).filter(e => e && num(e.amount) > 0);
+    if (localExp.length) {
+      const already = new Set((cloudExpenses || []).map(e => `${e.date}|${num(e.amount)}|${e.category_id}`));
+      const toAdd = localExp.filter(e => !already.has(`${e.date}|${num(e.amount)}|${e.category_id}`));
+      if (toAdd.length) {
+        const r = await sb.from('expenses').insert(toAdd.map(e => ({
+          date: e.date || todayISO(), amount: num(e.amount), category_id: e.category_id || null,
+          vendor: e.vendor || null, job_id: e.job_id || null, notes: e.notes || null,
+          receipt_url: e.receipt_url || null, created_by: meId
+        })));
+        if (!r.error) moved = true;
+      }
+      if (!toAdd.length || moved) { try { localStorage.removeItem(LS_EXP); } catch (e) {} }
+    }
+    return moved;
+  }, [meId]);
+
   /* ── load ── */
   const refresh = useCallback(async () => {
     setErr('');
@@ -129,6 +166,15 @@ function Dashboard({ session, profile, signOut }) {
         const missing = e => e && (e.code === 'PGRST205' || /schema cache/i.test(e.message || ''));
         const noTables = missing(eq.error) || missing(bq.error);
         setCloudMissing(noTables);
+
+        // Anything captured while the tables didn't exist is sitting in this
+        // browser. The moment the tables appear, push it up rather than letting
+        // the cloud's empty list hide it.
+        let pushed = false;
+        if (!noTables) pushed = await pushLocalUp(eq.error ? [] : (eq.data || []),
+                                                 bq.error ? [] : (bq.data || []));
+        if (pushed) { setLoading(false); return refresh(); }
+
         setExpenses(eq.error ? (noTables ? load(LS_EXP, []) : []) : (eq.data || []));
         setRevenue(rq.error ? [] : (rq.data || []));
         setAssets(aq.error ? [] : (aq.data || []));
@@ -318,6 +364,10 @@ function Dashboard({ session, profile, signOut }) {
         base.contract_total = num(row.contract_total) || num(row.revenue);
         base.amount_collected = num(row.amount_collected);
         base.payment_type = row.payment_type || null;
+        // nullable on purpose: null means "use the name rule"
+        if (row.owner_cut_exempt === true || row.owner_cut_exempt === false) {
+          base.owner_cut_exempt = row.owner_cut_exempt;
+        }
       }
       let id = row.id;
       if (id) { const r = await sb.from('jobs').update(base).eq('id', id); if (r.error) throw r.error; }
@@ -448,6 +498,20 @@ function Dashboard({ session, profile, signOut }) {
   };
 
   const papersJob = modal?.kind === 'docs' ? jobs.find(j => j.id === modal.row.id) : null;
+
+  /* ── the owner split: banked on installed jobs, projected on everything ── */
+  const owners = useMemo(() => {
+    const acc = { installed: 0, projected: 0, companyInstalled: 0, companyProjected: 0, exemptCount: 0 };
+    jobs.forEach(j => {
+      const sp = ownerSplit(j, expensesForJob(j.id));
+      if (!sp.revenue) return;
+      acc.projected += sp.ownerPool;
+      acc.companyProjected += sp.companyCut;
+      if (sp.exempt) acc.exemptCount += 1;
+      if (j.done) { acc.installed += sp.ownerPool; acc.companyInstalled += sp.companyCut; }
+    });
+    return acc;
+  }, [jobs, expensesForJob]);
 
   /* ── instrument cluster: this month vs the best month so far ── */
   const nowKey = monthKey(todayISO());
@@ -661,6 +725,25 @@ function Dashboard({ session, profile, signOut }) {
                               categories={categories} pl={pl} jobs={jobs} />
               )}
             </div>
+          )}
+
+          {tab === 'dash' && isAdmin && (
+            <section>
+              <h2 className="text-2xl font-black text-lite mb-4">The owner pool</h2>
+              <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+                <Tile label="Owners, installed" value={money(owners.installed)}
+                      sub="Jobs finished and ticked off" color="#FF6B1A" />
+                <Tile label="Owners, projected" value={money(owners.projected)}
+                      sub="Every job, including in progress" color="#F5B942" />
+                <Tile label="Company keeps, installed" value={money(owners.companyInstalled)} sub="The 20%" />
+                <Tile label="Company keeps, projected" value={money(owners.companyProjected)} sub="If everything closes" />
+              </div>
+              <p className="text-xs font-bold text-muted mt-3">
+                The company keeps 20% of each job's profit and the owners take the rest.
+                {owners.exemptCount > 0 && ` ${owners.exemptCount} job${owners.exemptCount > 1 ? 's are' : ' is'} carved out and pay${owners.exemptCount > 1 ? '' : 's'} no company cut.`}
+                {' '}Flip it per job in Edit. A job that loses money takes no cut.
+              </p>
+            </section>
           )}
 
           {/* ── FIXED COSTS ── */}

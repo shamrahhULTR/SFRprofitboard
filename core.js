@@ -62,6 +62,37 @@ function jobRevenue(j) {
   return num(j && j.contract_total) || num(j && j.revenue);
 }
 
+/* ═══════════ the owner split ═══════════
+   The company keeps 20% of a job's profit; the owners take the rest. A few
+   jobs are carved out and pay no company cut at all.
+
+   The carve-out is decided in this order:
+     1. owner_cut_exempt on the job, if someone has set it explicitly
+     2. otherwise the name rule below
+   The column is deliberately NULLABLE with no default, so "never set" stays
+   distinguishable from "set to false" — a NOT NULL DEFAULT is exactly what
+   made contract_total silently zero out every job's revenue. */
+
+const COMPANY_CUT = 0.20;
+const OWNER_EXEMPT_NAMES = ['valerie', 'jamie miller', 'bly', 'nichole'];
+
+function isOwnerCutExempt(j) {
+  if (!j) return false;
+  if (j.owner_cut_exempt === true)  return true;
+  if (j.owner_cut_exempt === false) return false;
+  const n = String(j.name || '').toLowerCase();
+  return OWNER_EXEMPT_NAMES.some(k => n.includes(k));
+}
+
+/* Profit on the job, then how it splits. A job that loses money takes no
+   company cut — the owners absorb it — rather than billing 20% of a loss. */
+function ownerSplit(j, extraCost) {
+  const m = jobMetrics({ ...j, direct_costs: num(extraCost) });
+  const exempt = isOwnerCutExempt(j);
+  const companyCut = exempt ? 0 : Math.max(m.profit, 0) * COMPANY_CUT;
+  return { ...m, exempt, companyCut, ownerPool: m.profit - companyCut };
+}
+
 function jobMetrics(j) {
   const revenue = jobRevenue(j);
   const cost = num(j.material) + num(j.labor) + num(j.dumpster) + num(j.direct_costs);

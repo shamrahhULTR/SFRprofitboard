@@ -448,7 +448,7 @@ function MoneyOut({ expenses, categories, jobs, onAdd, onDelete, isAdmin, noteDi
 /* ═════════════════════════ jobs ═════════════════════════ */
 
 function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
-  const m = jobMetrics({ ...j, direct_costs: expenseTotal });
+  const m = ownerSplit(j, expenseTotal);
   const st = marginState(m.margin);
   return (
     <div className="bg-panel rounded-3xl card-shadow p-5">
@@ -488,6 +488,24 @@ function JobCard({ j, docCount, expenseTotal, isAdmin, onToggle, onEdit, onDelet
           </div>
         </>
       )}
+      {isAdmin && m.revenue > 0 && (
+        <div className="mt-3 rounded-2xl border border-line px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Owners take</div>
+            <div className="figure text-xl font-black mt-0.5" style={{ color: '#FF6B1A' }}>{moneyExact(m.ownerPool)}</div>
+          </div>
+          <div className="text-right shrink-0">
+            {m.exempt
+              ? <span className="text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full"
+                      style={{ background: '#2A2410', color: '#F5B942' }}>No company cut</span>
+              : <>
+                  <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Company 20%</div>
+                  <div className="tnum text-sm font-black text-ink mt-0.5">{moneyExact(m.companyCut)}</div>
+                </>}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 mt-4 flex-wrap">
         <Btn tone="navy" size="md" onClick={() => onPapers(j)} className="flex-1">🧾 Papers{docCount ? ` (${docCount})` : ''}</Btn>
         <Btn tone="ghost" size="md" onClick={() => onEdit(j)} className="flex-1">Edit</Btn>
@@ -571,6 +589,22 @@ function JobForm({ initial, onSave, onClose, isAdmin }) {
           <input type="checkbox" checked={!!f.done} onChange={e => set('done')(e.target.checked)} className="w-6 h-6 accent-[#3DDC84]" />
           <span className="font-black text-lite">Install is finished</span>
         </label>
+
+        {isAdmin && (
+          <label className="flex items-center gap-3 bg-shell rounded-2xl px-4 py-3.5 cursor-pointer">
+            <input type="checkbox" checked={!isOwnerCutExempt(f)}
+                   onChange={e => set('owner_cut_exempt')(!e.target.checked)}
+                   className="w-6 h-6 accent-[#FF6B1A]" />
+            <span className="min-w-0">
+              <span className="font-black text-lite block">Company takes 20% off this job</span>
+              <span className="text-xs font-bold text-muted">
+                {isOwnerCutExempt(f)
+                  ? 'Off, the owners take the whole profit on this one.'
+                  : `Owners get ${moneyExact(ownerSplit(f, 0).ownerPool)} of ${moneyExact(jobMetrics(f).profit)}.`}
+              </span>
+            </span>
+          </label>
+        )}
       </div>
       <div className="flex gap-3 justify-end mt-7">
         <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
