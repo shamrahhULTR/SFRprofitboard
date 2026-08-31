@@ -296,7 +296,7 @@ function JobDollarPie({ job, expenses, categories, pl, jobs }) {
   if (!RC.PieChart) return null;
   const { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } = RC;
 
-  const revenue = num(job.contract_total ?? job.revenue);
+  const revenue = jobRevenue(job);
   const mine = expenses.filter(e => e.job_id === job.id);
 
   const sumOf = names => mine

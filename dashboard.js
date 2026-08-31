@@ -165,9 +165,9 @@ function Dashboard({ session, profile, signOut }) {
   // the four numbers aren't blank on day one.
   const revenueRows = useMemo(() => {
     if (revenue.length) return revenue;
-    return jobs.filter(j => num(j.contract_total ?? j.revenue) > 0).map(j => ({
+    return jobs.filter(j => jobRevenue(j) > 0).map(j => ({
       id: 'job-' + j.id, date: (j.installed_on || j.created_at || todayISO()).slice(0, 10),
-      amount: num(j.contract_total ?? j.revenue), source: 'job_contract', job_id: j.id
+      amount: jobRevenue(j), source: 'job_contract', job_id: j.id
     }));
   }, [revenue, jobs]);
 
@@ -212,7 +212,7 @@ function Dashboard({ session, profile, signOut }) {
 
   const totals = useMemo(() => jobs.reduce((a, j) => {
     a.squares += num(j.squares); if (j.done) a.installed += 1;
-    a.contracted += num(j.contract_total ?? j.revenue);
+    a.contracted += jobRevenue(j);
     a.collected += num(j.amount_collected);
     return a;
   }, { squares: 0, installed: 0, contracted: 0, collected: 0 }), [jobs]);
@@ -315,7 +315,7 @@ function Dashboard({ session, profile, signOut }) {
       const base = { name: row.name.trim(), squares: num(row.squares), done: !!row.done,
                      lead_source: row.lead_source || null };
       if (isAdmin) {
-        base.contract_total = num(row.contract_total);
+        base.contract_total = num(row.contract_total) || num(row.revenue);
         base.amount_collected = num(row.amount_collected);
         base.payment_type = row.payment_type || null;
       }
@@ -329,7 +329,7 @@ function Dashboard({ session, profile, signOut }) {
       if (isAdmin) {
         const mr = await sb.from('job_money').upsert({
           job_id: id,
-          revenue:  num(row.contract_total),
+          revenue:  num(row.contract_total) || num(row.revenue),
           material: num(row.material),
           labor:    num(row.labor),
           dumpster: num(row.dumpster)

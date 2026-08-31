@@ -54,11 +54,16 @@ const monthLabel = k => {
   return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 };
 
+/* contract_total was added to jobs as NOT NULL DEFAULT 0, so `j.contract_total
+   ?? j.revenue` stopped falling through to job_money.revenue and every job read
+   $0. One helper, used everywhere, so this cannot drift apart again: a typed
+   contract total wins, otherwise fall back to the job_money row. */
+function jobRevenue(j) {
+  return num(j && j.contract_total) || num(j && j.revenue);
+}
+
 function jobMetrics(j) {
-  // contract_total was added to jobs as NOT NULL DEFAULT 0, so `??` stopped
-  // falling through to job_money.revenue and every job read $0. Take whichever
-  // is actually set: a typed contract total wins, otherwise the job_money row.
-  const revenue = num(j.contract_total) || num(j.revenue);
+  const revenue = jobRevenue(j);
   const cost = num(j.material) + num(j.labor) + num(j.dumpster) + num(j.direct_costs);
   const profit = revenue - cost;
   return { revenue, cost, profit, margin: revenue > 0 ? (profit / revenue) * 100 : null };
