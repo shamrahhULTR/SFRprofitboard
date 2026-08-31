@@ -55,7 +55,10 @@ const monthLabel = k => {
 };
 
 function jobMetrics(j) {
-  const revenue = num(j.contract_total ?? j.revenue);
+  // contract_total was added to jobs as NOT NULL DEFAULT 0, so `??` stopped
+  // falling through to job_money.revenue and every job read $0. Take whichever
+  // is actually set: a typed contract total wins, otherwise the job_money row.
+  const revenue = num(j.contract_total) || num(j.revenue);
   const cost = num(j.material) + num(j.labor) + num(j.dumpster) + num(j.direct_costs);
   const profit = revenue - cost;
   return { revenue, cost, profit, margin: revenue > 0 ? (profit / revenue) * 100 : null };
