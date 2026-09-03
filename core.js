@@ -19,6 +19,7 @@ const LS_EXP  = 'sfr_pb_exp_v1';
 const LS_REV  = 'sfr_pb_rev_v1';
 const LS_QUEUE = 'sfr_pb_queue_v1';   // offline expense capture
 const LS_BILLS = 'sfr_pb_bills_v1';   // fixed monthly costs (rent, comp, warranty)
+const LS_EXEMPT = 'sfr_pb_owner_exempt_v1';  // 20% toggle, until the column exists
 
 function load(key, fallback) {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
@@ -241,6 +242,70 @@ function cumulative(series) {
   return series.map(p => {
     r += p.revenue; g += p.grossProfit; e += p.ebitda; n += p.netProfit;
     return { ...p, revenue: r, grossProfit: g, ebitda: e, netProfit: n };
+  });
+}
+
+/* Owner pay over time. Dated by when the job was installed (or entered, if it
+   isn't installed yet), so the line steps up as work actually lands rather
+   than when the invoice was typed. */
+function ownerSeries(jobs, costFor, ctx, granularity) {
+  const day = granularity === 'day';
+  const keyOf = day ? dayKey : monthKey;
+  const labelOf = day ? dayLabel : monthLabel;
+
+  const bucket = {};
+  (jobs || []).forEach(j => {
+    const sp = ownerSplit(j, costFor ? costFor(j.id) : 0, ctx);
+    if (!sp.revenue) return;
+    const k = keyOf(j.installed_on || j.created_at || todayISO());
+    if (!k) return;
+    const b = bucket[k] || (bucket[k] = { ownerPool: 0, companyCut: 0, profit: 0, jobs: 0 });
+    b.ownerPool += sp.ownerPool;
+    b.companyCut += sp.companyCut;
+    b.profit += sp.profit;
+    b.jobs += 1;
+  });
+
+  const present = Object.keys(bucket).sort();
+  if (!present.length) return [];
+
+  // Fill the gaps so the line is unbroken.
+  const all = [];
+  if (day) {
+    const start = new Date(present[0] + 'T00:00:00');
+    const today = new Date(todayISO() + 'T00:00:00');
+    const last = new Date(present[present.length - 1] + 'T00:00:00');
+    const stop = last > today ? last : today;
+    for (let d = new Date(start); d <= stop && all.length < 800; d.setDate(d.getDate() + 1)) {
+      all.push(d.toISOString().slice(0, 10));
+    }
+  } else {
+    const [sy, sm] = present[0].split('-').map(Number);
+    const cur = new Date(sy, sm - 1, 1);
+    const today = new Date(); today.setDate(1);
+    const [ey, em] = present[present.length - 1].split('-').map(Number);
+    const last = new Date(ey, em - 1, 1);
+    const stop = last > today ? last : today;
+    while (cur <= stop && all.length < 240) {
+      all.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+
+  return all.map(k => ({
+    key: k, label: labelOf(k),
+    ownerPool: (bucket[k] || {}).ownerPool || 0,
+    companyCut: (bucket[k] || {}).companyCut || 0,
+    profit: (bucket[k] || {}).profit || 0,
+    jobs: (bucket[k] || {}).jobs || 0
+  }));
+}
+
+function cumulativeOwner(series) {
+  let o = 0, c = 0, p = 0, n = 0;
+  return series.map(x => {
+    o += x.ownerPool; c += x.companyCut; p += x.profit; n += x.jobs;
+    return { ...x, ownerPool: o, companyCut: c, profit: p, jobs: n };
   });
 }
 

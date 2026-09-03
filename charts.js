@@ -365,3 +365,113 @@ function JobDollarPie({ job, expenses, categories, pl, jobs }) {
     </ChartCard>
   );
 }
+
+/* ─── Owner pay over time ───
+   The number the owners actually care about, on its own chart so it isn't
+   fighting revenue for the axis. Same visual language as the stock chart:
+   one solid line for what happened, a lighter dashed one for the projection,
+   with the assumption stated in dollars underneath. */
+function OwnerPayChart({ series, running, setRunning, grain, setGrain, pace, setPace }) {
+  if (!RC.AreaChart || !series.length) return null;
+  const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } = RC;
+
+  const ORANGE = '#FF6B1A';
+  const last = series[series.length - 1] || {};
+
+  // Pace from the raw per-period values, never the cumulative line.
+  const perPeriod = running
+    ? series.map((p, i) => ({ ...p, ownerPool: p.ownerPool - (i ? series[i - 1].ownerPool : 0) }))
+    : series;
+  const lastN = perPeriod.slice(-30);
+  const avg = lastN.length ? lastN.reduce((a, p) => a + p.ownerPool, 0) / lastN.length : 0;
+  const mult = pace === 'half' ? 0.5 : pace === 'aggressive' ? 1.5 : 1;
+  const step = avg * mult;
+
+  const hist = series.map(p => ({ label: p.label, value: Math.round(p.ownerPool), projected: null }));
+  const proj = [];
+  let cur = last.ownerPool || 0;
+  const end = new Date(new Date().getFullYear(), 11, 31);
+  const spanDays = Math.max(Math.round((end - new Date()) / 86400000), 0);
+  const steps = grain === 'day' ? Math.min(spanDays, 180) : Math.max(12 - (new Date().getMonth() + 1), 0);
+  for (let i = 1; i <= steps; i++) {
+    cur = running ? cur + step : step;
+    const d = new Date();
+    if (grain === 'day') d.setDate(d.getDate() + i); else d.setMonth(d.getMonth() + i);
+    proj.push({
+      label: grain === 'day' ? dayLabel(d.toISOString().slice(0, 10))
+                             : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      value: null, projected: Math.round(cur)
+    });
+  }
+  if (hist.length) hist[hist.length - 1].projected = hist[hist.length - 1].value;
+  const data = [...hist, ...proj];
+
+  return (
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-[11px] font-black uppercase tracking-[.1em] text-muted">
+            Owners' pay{running ? ', all time so far' : grain === 'day' ? ', latest day' : ', this month'}
+          </div>
+          <div className="figure font-black mt-1" style={{ fontSize: 'clamp(2rem,5vw,3rem)', color: ORANGE }}>
+            {money(last.ownerPool || 0)}
+          </div>
+          <div className="text-xs font-bold text-muted mt-1">
+            After the company's 20%{last.companyCut ? ` · company kept ${money(last.companyCut)}` : ''}
+          </div>
+        </div>
+        <div className="flex gap-1.5 flex-wrap justify-end">
+          {[{ v: 'day', t: 'Day by day' }, { v: 'month', t: 'Month by month' }].map(o => (
+            <button key={o.v} onClick={() => setGrain(o.v)}
+              className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
+                (grain === o.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line')}>{o.t}</button>
+          ))}
+          <button onClick={() => setRunning(!running)}
+            className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
+              (running ? 'text-white' : 'bg-panel text-lite border-line')}
+            style={running ? { background: ORANGE, borderColor: ORANGE } : {}}>
+            {running ? 'Running total' : 'Per period'}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ width: '100%', height: 300 }} className="mt-5">
+        <ResponsiveContainer>
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+            <defs>
+              <linearGradient id="ownerFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={ORANGE} stopOpacity={0.28} />
+                <stop offset="100%" stopColor={ORANGE} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#232D47" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700, fill: '#8891A8' }}
+                   tickLine={false} axisLine={{ stroke: '#232D47' }} minTickGap={grain === 'day' ? 44 : 18} />
+            <YAxis tick={{ fontSize: 11, fontWeight: 700, fill: '#8891A8' }} tickLine={false} axisLine={false}
+                   tickFormatter={v => (Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v)} width={54} />
+            <ReferenceLine y={0} stroke="#2A3550" />
+            <Tooltip content={<ChartTip />} />
+            <Area type="monotone" dataKey="value" name="Owners' pay" stroke={ORANGE} strokeWidth={2}
+                  fill="url(#ownerFill)" dot={false} connectNulls />
+            <Area type="monotone" dataKey="projected" name="Projected" stroke={ORANGE} strokeWidth={2}
+                  strokeDasharray="6 5" strokeOpacity={0.55} fill="url(#ownerFill)" fillOpacity={0.25}
+                  dot={false} connectNulls />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap mt-4">
+        <span className="text-[11px] font-black uppercase tracking-[.1em] text-muted">Projection assumes</span>
+        {[{ v: 'half', t: 'Half pace' }, { v: 'recent', t: 'Recent pace' }, { v: 'aggressive', t: 'Aggressive' }].map(o => (
+          <button key={o.v} onClick={() => setPace(o.v)}
+            className={'px-3 py-2 rounded-xl font-black text-xs border-2 transition ' +
+              (pace === o.v ? 'bg-panel2 text-white border-lite' : 'bg-panel text-lite border-line')}>{o.t}</button>
+        ))}
+      </div>
+      <p className="text-xs font-bold text-muted mt-3">
+        The dotted line is a guess: about {moneyExact(step)} of owner pay per {grain === 'day' ? 'day' : 'month'},
+        based on your recent pace. Not a promise.
+      </p>
+    </section>
+  );
+}

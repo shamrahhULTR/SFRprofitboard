@@ -63,6 +63,10 @@ function Dashboard({ session, profile, signOut }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [moneySub, setMoneySub] = useState('spend');   // spend | fixed (mobile Money tab)
   const [milestone, setMilestone] = useState(null);
+  const [ownerGrain, setOwnerGrain] = useState('month');
+  const [ownerRunning, setOwnerRunning] = useState(true);
+  const [ownerPace, setOwnerPace] = useState('recent');
+  const [reportMonth, setReportMonth] = useState(monthKey(todayISO()));
   const [cloudMissing, setCloudMissing] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [mkt, setMkt] = useState([]);
@@ -144,7 +148,11 @@ function Dashboard({ session, profile, signOut }) {
       setCategories(cq.error ? DEFAULT_CATEGORIES : (cq.data || []));
       setDocs(dq.error ? [] : (dq.data || []));
 
-      let merged = jq.data || [];
+      // Local overrides for the 20% toggle, used until the column exists.
+      const exemptOverrides = load(LS_EXEMPT, {});
+      let merged = (jq.data || []).map(j => (
+        exemptOverrides[j.id] === undefined ? j : { ...j, owner_cut_exempt: exemptOverrides[j.id] }
+      ));
       if (isAdmin) {
         const [mq, kq, pq, eq, rq, aq, bq] = await Promise.all([
           sb.from('job_money').select('*'),
@@ -285,7 +293,7 @@ function Dashboard({ session, profile, signOut }) {
 
   /* ── expense writes ── */
   const saveExpense = async payload => {
-    const { file, scan, ...row } = payload;
+    const { file, ...row } = payload;
     setRecentCats(p => [row.category_id, ...p.filter(x => x !== row.category_id)].slice(0, 6));
 
     if (!CLOUD) {
@@ -314,13 +322,6 @@ function Dashboard({ session, profile, signOut }) {
         persist(LS_EXP, next); return next;
       });
       return;
-    }
-    // Best-effort: keep the model's raw read next to what the human actually
-    // saved, so the prompt can be improved by seeing where it was wrong.
-    if (scan) {
-      sb.from('scan_logs').insert({
-        raw: scan.raw, final_saved: row, source: scan.source, created_by: meId
-      }).then(() => {}, () => {});
     }
     await refresh();
   };
@@ -369,10 +370,32 @@ function Dashboard({ session, profile, signOut }) {
           base.owner_cut_exempt = row.owner_cut_exempt;
         }
       }
+      // If owner_cut_exempt hasn't been added to the table yet, don't lose the
+      // toggle: keep the choice on this device and save everything else.
+      const missingCol = e => e && /owner_cut_exempt/.test(e.message || '');
+      const stash = () => {
+        if (base.owner_cut_exempt === undefined) return;
+        const m = load(LS_EXEMPT, {});
+        m[row.id || '__new'] = base.owner_cut_exempt;
+        persist(LS_EXEMPT, m);
+      };
+      const without = () => { const b = { ...base }; delete b.owner_cut_exempt; return b; };
+
       let id = row.id;
-      if (id) { const r = await sb.from('jobs').update(base).eq('id', id); if (r.error) throw r.error; }
-      else { const r = await sb.from('jobs').insert({ ...base, created_by: meId }).select().single();
-             if (r.error) throw r.error; id = r.data.id; }
+      if (id) {
+        let r = await sb.from('jobs').update(base).eq('id', id);
+        if (missingCol(r.error)) { stash(); r = await sb.from('jobs').update(without()).eq('id', id); }
+        if (r.error) throw r.error;
+      } else {
+        let r = await sb.from('jobs').insert({ ...base, created_by: meId }).select().single();
+        if (missingCol(r.error)) {
+          r = await sb.from('jobs').insert({ ...without(), created_by: meId }).select().single();
+          if (!r.error && base.owner_cut_exempt !== undefined) {
+            const m = load(LS_EXEMPT, {}); m[r.data.id] = base.owner_cut_exempt; persist(LS_EXEMPT, m);
+          }
+        }
+        if (r.error) throw r.error; id = r.data.id;
+      }
       // Write ALL the money, not just revenue. Upserting revenue alone reset
       // material/labor/dumpster to 0 on every edit, which is what wiped the
       // job costs and left gross profit equal to revenue.
@@ -520,6 +543,11 @@ function Dashboard({ session, profile, signOut }) {
     });
     return acc;
   }, [jobs, expensesForJob, ownerCtx]);
+
+  const ownerChart = useMemo(() => {
+    const base = ownerSeries(jobs, expensesForJob, ownerCtx, ownerGrain);
+    return ownerRunning ? cumulativeOwner(base) : base;
+  }, [jobs, expensesForJob, ownerCtx, ownerGrain, ownerRunning]);
 
   /* ── instrument cluster: this month vs the best month so far ── */
   const nowKey = monthKey(todayISO());
@@ -687,7 +715,6 @@ function Dashboard({ session, profile, signOut }) {
                 <h2 className="text-2xl font-black text-lite mb-4">Cash and work</h2>
                 <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                   <Tile label="Contracted" value={money(totals.contracted)} sub="Signed up" />
-                  <Tile label="Collected" value={money(totals.collected)} sub="Actually in the bank" color="#3DDC84" />
                   <Tile label="Jobs installed" value={`${totals.installed} / ${jobs.length}`} sub="Green checks in Jobs" />
                   <Tile label="Squares sold" value={totals.squares.toLocaleString('en-US')} sub="1 square = 100 sq ft" />
                 </div>
@@ -718,6 +745,12 @@ function Dashboard({ session, profile, signOut }) {
               <StockChart series={chartSeries} perSeries={chartPer} metric={metric} setMetric={setMetric}
                           range={range} setRange={setRange} growth={growth} setGrowth={setGrowth}
                           grain={grain} setGrain={setGrain} running={running} setRunning={setRunning} />
+
+              <OwnerPayChart series={ownerChart}
+                             running={ownerRunning} setRunning={setOwnerRunning}
+                             grain={ownerGrain} setGrain={setOwnerGrain}
+                             pace={ownerPace} setPace={setOwnerPace} />
+
               <div className="grid gap-5 lg:grid-cols-2">
                 <SpendPie pl={pl} />
                 <MonthlyBars series={series} />
@@ -788,6 +821,27 @@ function Dashboard({ session, profile, signOut }) {
               ))}
             </div>
           )}
+          {tab === 'out' && isAdmin && (
+            <section className="bg-panel rounded-3xl card-shadow p-5 flex items-end gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[11px] font-black uppercase tracking-[.1em] text-muted">Monthly report</div>
+                <p className="text-xs font-bold text-muted mt-1">
+                  Every expense for one month, ready to print or save as a PDF.
+                </p>
+              </div>
+              <div className="flex items-end gap-2 sm:ml-auto">
+                <label className="block">
+                  <span className="block text-[10px] font-black uppercase tracking-[.09em] text-muted mb-1.5">Month</span>
+                  <input type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)}
+                         className="rounded-2xl border-2 border-line px-4 py-3 font-bold text-ink" />
+                </label>
+                <Btn tone="orange" size="md" onClick={() => printMonthlyReport({
+                  monthKeyStr: reportMonth, expenses: allExpenses, categories, jobs, company: COMPANY
+                })}>Print month</Btn>
+              </div>
+            </section>
+          )}
+
           {tab === 'out' && moneySub === 'fixed' && isAdmin && (
             <div className="sm:hidden">
               <BillsPanel bills={bills} categories={categories}

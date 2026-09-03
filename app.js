@@ -69,73 +69,6 @@ const BUCKET_ORDER = [
 ];
 
 
-/* ═════════════ receipt scanner ═════════════
-   Reads the photo ON the phone (Tesseract OCR, loaded only when first used),
-   then guesses the total, the vendor and the cost category from what it read.
-   The guess fills the form; a person always checks it before saving. */
-
-let _tessPromise = null;
-function loadTesseract() {
-  if (window.Tesseract) return Promise.resolve(window.Tesseract);
-  if (!_tessPromise) _tessPromise = new Promise((res, rej) => {
-    const el = document.createElement('script');
-    el.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-    el.onload = () => res(window.Tesseract); el.onerror = () => { _tessPromise = null; rej(new Error('Could not load the scanner.')); };
-    document.head.appendChild(el);
-  });
-  return _tessPromise;
-}
-
-async function ocrReceipt(file, onProgress) {
-  const T = await loadTesseract();
-  const worker = await T.createWorker('eng', 1, {
-    logger: m => { if (m.status === 'recognizing text' && onProgress) onProgress(m.progress); }
-  });
-  try {
-    const { data } = await worker.recognize(file);
-    return data.text || '';
-  } finally { await worker.terminate(); }
-}
-
-const SCAN_RULES = [
-  [['abc supply','beacon','srs distribution','roofing supply','shingle','gaf','owens corning','certainteed','lowe','home depot','lumber','84 lumber'], ['shingle','material']],
-  [['underlayment','felt','synthetic'], ['underlayment','material']],
-  [['shell','exxon','chevron','bp ','wawa','sunoco','circle k','racetrac','fuel','gasoline','diesel'], ['fuel']],
-  [['waste management','dumpster','disposal','landfill','hauling'], ['dumpster','disposal']],
-  [['permit','city of','county of'], ['permit']],
-  [['verizon','t-mobile','at&t','cell'], ['phone']],
-  [['geico','progressive','allstate','state farm','liberty mutual','insurance'], ['insurance','liability']],
-  [['sunbelt','united rentals','herc','rental'], ['rental']],
-  [['storage','public storage'], ['storage','office']]
-];
-
-function parseReceipt(text, categories) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const moneyRe = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}|[0-9]+\.[0-9]{2})/g;
-  let biggest = 0, totalLine = 0;
-  for (const l of lines) {
-    const isTotal = /total|amount due|balance due|grand total/i.test(l) && !/subtotal/i.test(l);
-    let m; moneyRe.lastIndex = 0;
-    while ((m = moneyRe.exec(l))) {
-      const v = parseFloat(m[1].replace(/,/g, ''));
-      if (!isFinite(v) || v <= 0 || v >= 1000000) continue;
-      if (isTotal && v > totalLine) totalLine = v;
-      if (v > biggest) biggest = v;
-    }
-  }
-  const vendor = (lines.find(l => /[A-Za-z]{3}/.test(l) && !/receipt|invoice|thank|welcome|order|date/i.test(l)) || '')
-    .replace(/[^A-Za-z0-9 .&'-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
-  const hay = text.toLowerCase();
-  let category_id = '';
-  for (const [keys, catKeys] of SCAN_RULES) {
-    if (keys.some(k => hay.includes(k))) {
-      const hit = categories.find(c => catKeys.some(ck => (c.name || '').toLowerCase().includes(ck)));
-      if (hit) { category_id = hit.id; break; }
-    }
-  }
-  return { amount: totalLine || biggest || 0, vendor, category_id };
-}
-
 /* ═════════════════ fast expense entry ═════════════════
    The spec is right that this decides whether the system survives. Target is
    under 15 seconds: amount is autofocused with a numeric keypad, categories
@@ -154,56 +87,9 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
   const [err, setErr] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
-  const [scanState, setScanState] = useState(null);   // null | 'reading' | 'done' | 'failed'
-  const [scanPct, setScanPct] = useState(0);
   const fileRef = useRef(null);
 
-  const scanMeta = useRef(null);   // raw model output, logged next to the save
 
-  const applyGuess = (g, source) => {
-    if (g.amount && !num(amount)) setAmount(String(g.amount));
-    if (g.vendor && !vendor) setVendor(g.vendor);
-    if (g.category_id && !catId) setCatId(g.category_id);
-    if (g.date) setDate(g.date);
-    scanMeta.current = { raw: g.raw || g, source };
-    setScanState(g.needs_review ? 'unsure' : (g.amount || g.vendor ? 'done' : 'failed'));
-  };
-
-  const scan = async picked => {
-    setScanState('reading'); setScanPct(0);
-    // Path 1: the scan-receipt edge function (Claude reads the photo). Only
-    // exists once it's deployed; costs a fraction of a cent per scan.
-    if (CLOUD) {
-      try {
-        const b64 = await new Promise((res, rej) => {
-          const rd = new FileReader();
-          rd.onload = () => res(String(rd.result).split(',')[1]);
-          rd.onerror = rej; rd.readAsDataURL(picked);
-        });
-        const { data, error } = await sb.functions.invoke('scan-receipt', {
-          body: {
-            image_base64: b64, media_type: picked.type,
-            categories: categories.filter(c => c.is_active !== false).map(c => ({ id: c.id, name: c.name })),
-            job_names: (jobs || []).filter(j => !j.done).map(j => ({ id: j.id, name: j.name }))
-          }
-        });
-        if (!error && data && !data.error) {
-          applyGuess({
-            amount: data.needs_review ? 0 : num(data.amount),
-            vendor: data.vendor || '', category_id: data.suggested_category || '',
-            date: data.date || '', needs_review: !!data.needs_review, raw: data
-          }, 'ai');
-          return;
-        }
-      } catch (e) { /* fall through to on-device OCR */ }
-    }
-    // Path 2: Tesseract on the phone. Free, private, works without the function.
-    try {
-      const text = await ocrReceipt(picked, p => setScanPct(Math.round(p * 100)));
-      const g = parseReceipt(text, categories);
-      applyGuess({ ...g, raw: { text: text.slice(0, 1200), ...g } }, 'ocr');
-    } catch (e) { setScanState('failed'); }
-  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -228,7 +114,7 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
         amount: num(amount), category_id: catId, job_id: jobId || null,
         vendor: vendor.trim() || null,
         date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO(),
-        file, scan: scanMeta.current
+        file
       });
       onClose();
     } catch (e) { setErr(e.message || 'That did not save.'); setBusy(false); }
@@ -308,37 +194,10 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
       <div className="mt-5">
         <span className="block text-[11px] font-black uppercase tracking-[.09em] text-muted mb-2">Photo of the receipt</span>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment"
-               onChange={e => {
-                 const picked = e.target.files && e.target.files[0];
-                 setFile(picked);
-                 if (picked && picked.type.startsWith('image/') && navigator.onLine) scan(picked);
-               }}
+               onChange={e => setFile(e.target.files && e.target.files[0])}
                className="block w-full text-sm font-bold text-ink file:mr-4 file:py-4 file:px-5 file:rounded-xl file:border-0
                           file:bg-panel2 file:text-white file:font-black file:cursor-pointer" />
-        <p className="text-xs text-muted font-semibold mt-2">
-          On a phone this opens the camera. The app reads the photo right on the phone and fills in
-          the amount and vendor for you.
-        </p>
-        {scanState === 'reading' && (
-          <div className="mt-3"><Banner tone="info">Reading the receipt… {scanPct}%</Banner></div>
-        )}
-        {scanState === 'done' && (
-          <div className="mt-3"><Banner tone="good">
-            This was read automatically. <b>Check the amount and category before saving</b> —
-            the scanner guesses, you decide. Nothing saves until you hit the button.
-          </Banner></div>
-        )}
-        {scanState === 'unsure' && (
-          <div className="mt-3"><Banner tone="warn">
-            <b>The scanner wasn't sure about this one</b> — the photo may be blurry or cut off.
-            Type the amount yourself; the picture still saves with the expense.
-          </Banner></div>
-        )}
-        {scanState === 'failed' && (
-          <div className="mt-3"><Banner tone="warn">
-            Couldn't read that photo well. Type the amount in, the picture still saves with the expense.
-          </Banner></div>
-        )}
+        <p className="text-xs text-muted font-semibold mt-2">On a phone this opens the camera.</p>
       </div>
 
       {err && <div className="mt-4"><Banner tone="error">{err}</Banner></div>}
@@ -591,50 +450,6 @@ function JobForm({ initial, onSave, onClose, isAdmin }) {
             <Select label="How are they paying?" value={f.payment_type || ''} onChange={set('payment_type')}
                     options={[{ v: '', t: 'Not set' }, { v: 'cash', t: 'Cash' }, { v: 'check', t: 'Check' }, { v: 'financed', t: 'Financed' }]} />
           </div>
-        )}
-
-        {/* What has actually landed in the bank, as opposed to what was signed. */}
-        {isAdmin && (
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Money collected so far" type="number" prefix="$"
-                   value={f.amount_collected || ''} onChange={set('amount_collected')} placeholder="0"
-                   hint="Deposit + any checks cashed" />
-            <div className="rounded-2xl border-2 border-line px-4 py-3 flex flex-col justify-center">
-              <span className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Still owed</span>
-              <span className="figure text-2xl font-black mt-0.5"
-                    style={{ color: (num(f.contract_total) - num(f.amount_collected)) > 0 ? '#F5B942' : '#3DDC84' }}>
-                {moneyExact(Math.max(num(f.contract_total) - num(f.amount_collected), 0))}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* What the job cost. These live on the job itself; anything you also
-            log against this job through the + button adds on top. */}
-        {isAdmin && (
-          <>
-            <div className="grid sm:grid-cols-3 gap-4">
-              <Field label="Material cost" type="number" prefix="$" value={f.material || ''} onChange={set('material')} placeholder="0" />
-              <Field label="Labor / subs" type="number" prefix="$" value={f.labor || ''} onChange={set('labor')} placeholder="0" />
-              <Field label="Dumpster / permit" type="number" prefix="$" value={f.dumpster || ''} onChange={set('dumpster')} placeholder="0" />
-            </div>
-
-            {/* Live math, so the number is never a surprise after saving. */}
-            {(() => {
-              const m = jobMetrics(f);
-              const st = marginState(m.margin);
-              return (
-                <div className="rounded-2xl border-2 border-line overflow-hidden">
-                  <div className="grid grid-cols-3 divide-x divide-line">
-                    <Mini label="It cost you" value={moneyExact(m.cost)} />
-                    <Mini label="You keep" value={moneyExact(m.profit)} color={m.profit >= 0 ? '#3DDC84' : '#FF6B6B'} />
-                    <Mini label="Margin" value={m.margin === null ? '—' : pct(m.margin)} color={st.color}
-                          note={m.margin === null ? '' : st.label} />
-                  </div>
-                </div>
-              );
-            })()}
-          </>
         )}
         <label className="flex items-center gap-3 bg-shell rounded-2xl px-4 py-3.5 cursor-pointer">
           <input type="checkbox" checked={!!f.done} onChange={e => set('done')(e.target.checked)} className="w-6 h-6 accent-[#3DDC84]" />
@@ -1037,4 +852,120 @@ function MilestoneOverlay({ ms, onClose }) {
       </div>
     </div>
   );
+}
+
+/* ═════════════ monthly expense report ═════════════
+   Opens a clean, on-brand sheet and hands it to the browser's print dialog,
+   which is also how you get a PDF. Deliberately light on paper — the dark
+   cluster look is for screens, not for ink. */
+
+function monthName(key) {
+  const [y, m] = String(key).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function buildMonthlyReport({ monthKeyStr, expenses, categories, jobs, company }) {
+  const rows = expenses
+    .filter(e => monthKey(e.date) === monthKeyStr)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  const catOf = e => (categories.find(c => c.id === e.category_id) || {}).name || 'Uncategorised';
+  const jobOf = e => (jobs.find(j => j.id === e.job_id) || {}).name || '';
+  const bucketOfRow = e => bucketOf(e, categories).bucket;
+
+  const total = rows.reduce((a, e) => a + num(e.amount), 0);
+  const jobTotal = rows.filter(e => bucketOfRow(e) === 'job_cost').reduce((a, e) => a + num(e.amount), 0);
+  const ohTotal = total - jobTotal;
+
+  const byCat = {};
+  rows.forEach(e => { const k = catOf(e); byCat[k] = (byCat[k] || 0) + num(e.amount); });
+  const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>${esc(company)} — Expenses, ${esc(monthName(monthKeyStr))}</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  @page { margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'DM Sans',system-ui,sans-serif; color:#14212B; background:#fff; }
+  .head { display:flex; align-items:center; justify-content:space-between; gap:20px;
+          border-bottom:4px solid #102D7F; padding-bottom:14px; margin-bottom:22px; }
+  .head h1 { font-size:26px; margin:0; color:#102D7F; letter-spacing:-.01em; }
+  .head .sub { font-size:12px; font-weight:700; color:#657381; margin-top:4px;
+               text-transform:uppercase; letter-spacing:.1em; }
+  .mark { width:46px; height:46px; border-radius:10px; background:#0A1F5C; position:relative; flex:0 0 auto; }
+  .mark:before { content:''; position:absolute; left:9px; right:9px; top:15px; height:4px;
+                 background:#F6821F; transform:rotate(-20deg); border-radius:2px; }
+  .mark:after { content:''; position:absolute; left:9px; right:9px; top:26px; height:3px;
+                background:#fff; transform:rotate(-8deg); border-radius:2px; }
+  .tiles { display:flex; gap:12px; margin-bottom:22px; }
+  .tile { flex:1; border:1px solid #DCE3EB; border-radius:12px; padding:12px 14px; }
+  .tile .l { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.1em; color:#657381; }
+  .tile .v { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700; margin-top:4px; color:#102D7F; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:#657381; margin:26px 0 8px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+       color:#fff; background:#102D7F; padding:8px 10px; }
+  td { padding:8px 10px; border-bottom:1px solid #EDF1F5; font-size:12px; font-weight:600; }
+  td.n, th.n { text-align:right; font-family:'JetBrains Mono',monospace; white-space:nowrap; }
+  tr:nth-child(even) td { background:#F8FAFC; }
+  tfoot td { font-weight:900; border-top:2px solid #102D7F; background:#fff !important; }
+  .tag { font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em;
+         padding:2px 6px; border-radius:99px; background:#EEF2F6; color:#657381; }
+  .tag.job { background:#E8F1EC; color:#0B6B3E; }
+  .foot { margin-top:26px; padding-top:12px; border-top:1px solid #DCE3EB;
+          font-size:10px; color:#8A97A5; font-weight:600; line-height:1.5; }
+  @media print { .noprint { display:none } }
+</style></head><body>
+<div class="head">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div class="mark"></div>
+    <div><h1>${esc(company)}</h1><div class="sub">Expenses · ${esc(monthName(monthKeyStr))}</div></div>
+  </div>
+  <div style="text-align:right">
+    <div class="sub">Total spent</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;color:#102D7F">${moneyExact(total)}</div>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="l">Job costs</div><div class="v">${moneyExact(jobTotal)}</div></div>
+  <div class="tile"><div class="l">Overhead</div><div class="v">${moneyExact(ohTotal)}</div></div>
+  <div class="tile"><div class="l">Entries</div><div class="v">${rows.length}</div></div>
+</div>
+
+<h2>By category</h2>
+<table><thead><tr><th>Category</th><th class="n">Amount</th><th class="n">Share</th></tr></thead><tbody>
+${catRows.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="n">${moneyExact(v)}</td><td class="n">${total ? Math.round(v / total * 100) : 0}%</td></tr>`).join('')}
+</tbody><tfoot><tr><td>Total</td><td class="n">${moneyExact(total)}</td><td class="n">100%</td></tr></tfoot></table>
+
+<h2>Every entry</h2>
+<table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Job</th><th>Type</th><th class="n">Amount</th></tr></thead><tbody>
+${rows.length ? rows.map(e => `<tr>
+  <td>${esc(String(e.date).slice(0, 10))}</td>
+  <td>${esc(catOf(e))}</td>
+  <td>${esc(e.vendor || '')}</td>
+  <td>${esc(jobOf(e))}</td>
+  <td><span class="tag ${bucketOfRow(e) === 'job_cost' ? 'job' : ''}">${bucketOfRow(e) === 'job_cost' ? 'Job' : 'Overhead'}</span></td>
+  <td class="n">${moneyExact(e.amount)}</td></tr>`).join('')
+  : '<tr><td colspan="6" style="color:#8A97A5">Nothing logged this month.</td></tr>'}
+</tbody><tfoot><tr><td colspan="5">Total</td><td class="n">${moneyExact(total)}</td></tr></tfoot></table>
+
+<div class="foot">
+  Printed ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} from Profit Board.
+  This is an operating record for seeing where money goes, not tax-ready bookkeeping — keep a bookkeeper
+  or accounting software running alongside for filing.
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); }<\/script>
+</body></html>`;
+}
+
+function printMonthlyReport(args) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Your browser blocked the report window. Allow pop-ups for this site and try again.'); return; }
+  w.document.write(buildMonthlyReport(args));
+  w.document.close();
 }
