@@ -30,7 +30,7 @@ function MarketingForm({ initial, onSave, onClose }) {
         <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
         <Btn tone="orange" size="lg" disabled={!f.label.trim() || busy}
              onClick={async () => { setBusy(true); try { await onSave(f); } finally { setBusy(false); } }}>
-          {busy ? 'Saving…' : 'Save spend'}
+          {busy ? 'Saving...' : 'Save spend'}
         </Btn>
       </div>
     </>
@@ -609,7 +609,7 @@ function Dashboard({ session, profile, signOut }) {
     { v: 'more', t: 'More',  icon: 'more' }
   ];
 
-  if (loading) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Loading your numbers…</p></div>;
+  if (loading) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Loading your numbers...</p></div>;
 
   return (
     <div className="min-h-screen pb-28">
@@ -683,7 +683,7 @@ function Dashboard({ session, profile, signOut }) {
                 <Tile label="All-time revenue" value={money(pl.revenue)} sub="Everything contracted" />
                 <Tile label="All-time gross" value={money(pl.grossProfit)} sub={pl.grossMargin === null ? 'Add revenue first' : pct(pl.grossMargin) + ' margin'} color="#3DDC84" />
                 <Tile label="All-time EBITDA" value={money(pl.ebitda)} sub="Owner draws excluded" color="#B685FF" />
-                <Tile label="All-time net" value={money(pl.netProfit)} sub={pl.netMargin === null ? '—' : pct(pl.netMargin) + ' margin'} color="#F5B942" />
+                <Tile label="All-time net" value={money(pl.netProfit)} sub={pl.netMargin === null ? '-' : pct(pl.netMargin) + ' margin'} color="#F5B942" />
               </div>
 
               {pl.operating === 0 && pl.draws === 0 && pl.revenue > 0 && (
@@ -789,8 +789,8 @@ function Dashboard({ session, profile, signOut }) {
                 <p className="text-xs font-bold text-muted mt-3 leading-relaxed">
                   The 20% is taken <b className="text-ink">after materials and labor</b>, before overhead.
                   Tap any job to see its working line by line. Each job also shows what it carries of the
-                  company's <b className="text-ink">{moneyExact(owners.overhead)}</b> of overhead — rent,
-                  insurance, fuel, wages, ads — so you can see the true bottom line, but that does not
+                  company's <b className="text-ink">{moneyExact(owners.overhead)}</b> of overhead - rent,
+                  insurance, fuel, wages, ads - so you can see the true bottom line, but that does not
                   change the 20%. Owner draws are excluded: draws are the owners paying themselves out of
                   this pool, so counting them would take the same money twice.
                 </p>
@@ -1030,7 +1030,7 @@ const DEFAULT_CATEGORIES = [
   { id: 'c4',  name: 'Dumpster & disposal',       bucket: 'job_cost',    excluded_from_ebitda: false },
   { id: 'c5',  name: 'Permits',                   bucket: 'job_cost',    excluded_from_ebitda: false },
   { id: 'c6',  name: 'Equipment rental',          bucket: 'job_cost',    excluded_from_ebitda: false },
-  // building — this is what rent is
+  // building - this is what rent is
   { id: 'c10', name: 'Office rent',               bucket: 'overhead',    excluded_from_ebitda: false },
   { id: 'c11', name: 'Warehouse or yard rent',    bucket: 'overhead',    excluded_from_ebitda: false },
   { id: 'c12', name: 'Utilities',                 bucket: 'overhead',    excluded_from_ebitda: false },
@@ -1093,9 +1093,9 @@ function App() {
   const signOut = async () => { await sb.auth.signOut(); setProfile(null); };
 
   if (!CLOUD)   return <Dashboard session={null} profile={{ role: 'admin' }} signOut={() => {}} />;
-  if (!ready)   return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Starting up…</p></div>;
+  if (!ready)   return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Starting up...</p></div>;
   if (!session) return <SignIn />;
-  if (!profile) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Signing you in…</p></div>;
+  if (!profile) return <div className="min-h-screen grid place-items-center"><p className="text-xl font-black text-lite">Signing you in...</p></div>;
   return <Dashboard session={session} profile={profile} signOut={signOut} />;
 }
 

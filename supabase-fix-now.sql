@@ -1,5 +1,5 @@
 -- ============================================================================
---  PROFIT BOARD — minimum fix so Fixed Costs (rent, workers comp) can save.
+--  PROFIT BOARD - minimum fix so Fixed Costs (rent, workers comp) can save.
 --  Paste ALL of this into Supabase → SQL Editor → New query → Run.
 --  Safe to run more than once.
 --  Project must be: qtgvmsepymifpoamndoo
@@ -69,7 +69,7 @@ insert into public.expense_categories (name, bucket, excluded_from_ebitda, sort_
   ('Tax set-aside',               'tax_reserve', true,  96)
 on conflict (name) do nothing;
 
--- ── 2. Fixed costs (rent, workers comp, warranty…) ──
+-- ── 2. Fixed costs (rent, workers comp, warranty...) ──
 create table if not exists public.recurring_expenses (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,

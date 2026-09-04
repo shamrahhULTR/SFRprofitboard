@@ -61,7 +61,7 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
 <script>
   /* Babel's stock "react" preset defaults to the automatic JSX runtime, which
-     emits `import { jsx } from "react/jsx-runtime"` — invalid in a classic
+     emits `import { jsx } from "react/jsx-runtime"` - invalid in a classic
      script with no bundler. Pin the classic runtime so JSX compiles down to
      React.createElement against the UMD global. */
   Babel.registerPreset('react-classic', {
@@ -72,7 +72,7 @@
 <style>
   :root { color-scheme: dark; }
   html, body { margin:0; background:#0B1220; font-family:'DM Sans','Archivo',system-ui,sans-serif; color:#F2F0EA; }
-  /* Money reads like a meter: mono, tabular, ticking — never jittering. */
+  /* Money reads like a meter: mono, tabular, ticking - never jittering. */
   .figure { font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums; letter-spacing:-.04em; }
   .tnum   { font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums; font-size:.92em; }
   .card-shadow { box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 10px 26px rgba(0,0,0,.35); }

@@ -1,4 +1,4 @@
-# Profit Board — Square Foot Roofing
+# Profit Board - Square Foot Roofing
 
 Job costing, profit, and marketing ROI in one dead-simple dashboard.
 Single-file React app (no build step). Works on a phone, installs as a PWA.
@@ -20,7 +20,7 @@ supabaseKey: 'sb_publishable_...',   // ← in config.js, line 29
 
 The Project URL is already filled in (`qtgvmsepymifpoamndoo`).
 
-> Use the **publishable / anon** key. Never the `service_role` secret key —
+> Use the **publishable / anon** key. Never the `service_role` secret key -
 > that one bypasses every security rule.
 
 ### 2. Run the database setup
@@ -60,7 +60,7 @@ so a crew member gets nothing back even if they call the API directly.
 
 ## Without a key
 
-Leave `supabaseKey` blank and the app still runs — it just saves to that one
+Leave `supabaseKey` blank and the app still runs - it just saves to that one
 device and nothing is shared. Use the **Back up** button to export a JSON copy.
 File uploads are disabled in this mode (there's nowhere to put the file).
 
@@ -70,7 +70,7 @@ File uploads are disabled in this mode (there's nowhere to put the file).
 
 | File | What it is |
 |---|---|
-| `index.html` | The whole app — React 18 + Tailwind, loaded from CDN, no build step |
+| `index.html` | The whole app - React 18 + Tailwind, loaded from CDN, no build step |
 | `config.js` | Your Supabase URL + key. The only file you edit |
 | `supabase-setup.sql` | Tables, security rules, and the storage bucket |
 | `service-worker.js` | Offline caching. Deliberately never caches `config.js` |
@@ -78,11 +78,11 @@ File uploads are disabled in this mode (there's nowhere to put the file).
 
 ## Brand
 
-Sampled from squarefootroofing.com — navy `#102D7F`, orange `#F6821F`, DM Sans.
+Sampled from squarefootroofing.com - navy `#102D7F`, orange `#F6821F`, DM Sans.
 
 The four headline cards were checked for colourblind separation and text
 contrast rather than eyeballed: worst all-pairs CVD ΔE **13.5** and normal-vision
-ΔE **27.4** (floors are 8 and 15), and every card's text clears 4.5:1 —
+ΔE **27.4** (floors are 8 and 15), and every card's text clears 4.5:1 -
 green 5.38, navy 12.33, purple 5.38, orange-on-navy 5.96.
 
 ## Run it locally
@@ -94,4 +94,4 @@ python3 -m http.server 4178 --directory profit-board
 Then open http://localhost:4178.
 
 > Magic-link sign-in needs the page served over `http://localhost` or a real
-> https:// domain — opening `index.html` as a `file://` path won't work.
+> https:// domain - opening `index.html` as a `file://` path won't work.

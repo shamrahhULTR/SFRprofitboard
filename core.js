@@ -71,7 +71,7 @@ function jobRevenue(j) {
      1. owner_cut_exempt on the job, if someone has set it explicitly
      2. otherwise the name rule below
    The column is deliberately NULLABLE with no default, so "never set" stays
-   distinguishable from "set to false" — a NOT NULL DEFAULT is exactly what
+   distinguishable from "set to false" - a NOT NULL DEFAULT is exactly what
    made contract_total silently zero out every job's revenue. */
 
 const COMPANY_CUT = 0.20;
@@ -88,7 +88,7 @@ function isOwnerCutExempt(j) {
 /* The company takes 20% of a job's profit AFTER materials and labor.
 
    Overhead is split across jobs by share of revenue: a job that is 30% of the
-   revenue absorbs 30% of the overhead. That is reported for visibility only —
+   revenue absorbs 30% of the overhead. That is reported for visibility only -
    the 20% is not reduced by it. Owner draws are deliberately not in the
    overhead pot: draws are the owners paying themselves out of this very pool.
 
@@ -97,7 +97,7 @@ function isOwnerCutExempt(j) {
        owners     = profit − company
 
    Overhead is still worked out per job and shown, so the true bottom line is
-   visible, but it does NOT reduce the 20% — the cut is taken after materials
+   visible, but it does NOT reduce the 20% - the cut is taken after materials
    and labor, before overhead.
 
    ctx = { overhead, totalRevenue }. Without it, overhead is 0 and this falls

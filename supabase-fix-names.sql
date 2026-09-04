@@ -1,6 +1,6 @@
 -- ============================================================================
 --  PROFIT BOARD, fix the garbled category names.
---  The em dash in "Rent — office" got mangled on the way into the database
+--  The em dash in "Rent - office" got mangled on the way into the database
 --  and now renders as "Rent ,Äî office". Renaming to plain text so it cannot
 --  happen again. Safe to run more than once.
 -- ============================================================================

@@ -40,7 +40,7 @@ function SignIn() {
         <img src="sfr-logo-reversed.png" alt={COMPANY} className="h-16 sm:h-20 w-auto mx-auto" />
         <h1 className="text-3xl sm:text-4xl font-black text-lite mt-7 leading-tight">Profit Board</h1>
         <p className="text-lg sm:text-xl font-bold text-ink mt-4 leading-snug">
-          {mode === 'in' ? 'Sign in to see your jobs.' : 'Pick a password and you’re in.'}
+          {mode === 'in' ? 'Sign in to see your jobs.' : 'Pick a password and you\'re in.'}
         </p>
         <div className="mt-7 text-left grid gap-4">
           <Field label="Your email address" big type="email" value={email} onChange={setEmail} placeholder="you@example.com" autoFocus />
@@ -50,7 +50,7 @@ function SignIn() {
         {err && <div className="mt-4 text-left"><Banner tone="error">{err}</Banner></div>}
         {ok  && <div className="mt-4 text-left"><Banner tone="info">{ok}</Banner></div>}
         <Btn tone="orange" size="xl" onClick={go} disabled={busy || !email.trim() || !pw} className="w-full mt-6">
-          {busy ? 'One moment…' : mode === 'in' ? 'Sign in' : 'Create my account'}
+          {busy ? 'One moment...' : mode === 'in' ? 'Sign in' : 'Create my account'}
         </Btn>
         <button onClick={() => { setMode(mode === 'in' ? 'new' : 'in'); setErr(''); setOk(''); }}
                 className="mt-6 text-base font-black text-lite underline underline-offset-4">
@@ -136,7 +136,7 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
         {/* With ~100 categories a flat chip list stops working, so search and
             the grouped full list are one tap away. Common ones stay on top. */}
         {showAll && (
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search, rent, fuel, insurance…"
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search, rent, fuel, insurance..."
                  className="w-full rounded-2xl border-2 border-line bg-panel px-4 py-3 font-bold text-ink mb-3" />
         )}
 
@@ -177,10 +177,10 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
         {chosen && (
           <p className="text-xs font-bold mt-2" style={{ color: chosen.bucket === 'job_cost' ? '#3DDC84' : '#8891A8' }}>
             {chosen.bucket === 'job_cost'
-              ? `“${chosen.name}” is a job cost, it comes off that job's profit.`
+              ? `"${chosen.name}" is a job cost, it comes off that job's profit.`
               : chosen.excluded_from_ebitda
-                ? `“${chosen.name}” sits below the EBITDA line, it hits net profit, not EBITDA.`
-                : `“${chosen.name}” is company overhead, it comes off the whole business, not one job.`}
+                ? `"${chosen.name}" sits below the EBITDA line, it hits net profit, not EBITDA.`
+                : `"${chosen.name}" is company overhead, it comes off the whole business, not one job.`}
           </p>
         )}
       </div>
@@ -203,7 +203,7 @@ function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin })
       {err && <div className="mt-4"><Banner tone="error">{err}</Banner></div>}
 
       <Btn tone="green" size="xl" onClick={save} disabled={busy} className="w-full mt-6">
-        {busy ? 'Saving…' : 'Save it'}
+        {busy ? 'Saving...' : 'Save it'}
       </Btn>
       <p className="text-xs font-bold text-muted mt-3 text-center">
         No signal? It saves on this phone and uploads itself when you're back online.
@@ -476,7 +476,7 @@ function JobForm({ initial, onSave, onClose, isAdmin }) {
         <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
         <Btn tone="green" size="lg" disabled={!canSave || busy}
              onClick={async () => { setBusy(true); try { await onSave(f); } finally { setBusy(false); } }}>
-          {busy ? 'Saving…' : 'Save job'}
+          {busy ? 'Saving...' : 'Save job'}
         </Btn>
       </div>
     </>
@@ -525,7 +525,7 @@ function DocsPanel({ job, docs, onUpload, onDeleteDoc, onOpenDoc, canDelete }) {
         </div>
         {err && <div className="mt-4"><Banner tone="error">{err}</Banner></div>}
         <Btn tone="green" size="lg" onClick={go} disabled={busy || !CLOUD || !file} className="w-full mt-5">
-          {busy ? 'Saving…' : 'Save this paper'}
+          {busy ? 'Saving...' : 'Save this paper'}
         </Btn>
       </div>
       <div className="mt-6">
@@ -574,7 +574,7 @@ function TeamPanel({ people, meId, onSetRole, busyId }) {
               {p.id === meId ? <span className="text-xs font-bold text-muted">You can't change your own access</span> : (
                 <Btn tone={admin ? 'ghost' : 'navy'} size="md" disabled={busyId === p.id}
                      onClick={() => onSetRole(p, admin ? 'crew' : 'admin')} className="w-full">
-                  {busyId === p.id ? '…' : admin ? 'Make crew' : 'Make admin'}
+                  {busyId === p.id ? '...' : admin ? 'Make crew' : 'Make admin'}
                 </Btn>
               )}
             </div>
@@ -609,7 +609,7 @@ const BILL_PRESETS = [
 /* Match the preset to a real category, precisely. Two rules learned the hard
    way: "Rent" must not match "Equipment rental" just because the letters are
    in there, and a miss must return nothing rather than falling back to
-   whatever overhead category happens to be first — that fallback is what
+   whatever overhead category happens to be first - that fallback is what
    filed rent under Insurance. */
 function findCategoryFor(preset, categories) {
   const pool = categories.filter(c => c.is_active !== false && c.bucket !== 'job_cost');
@@ -676,7 +676,7 @@ function BillForm({ initial, categories, onSave, onClose }) {
         <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
         <Btn tone="green" size="lg" disabled={busy || !f.name.trim() || !num(f.amount) || !f.category_id}
              onClick={async () => { setBusy(true); try { await onSave(f); } finally { setBusy(false); } }}>
-          {busy ? 'Saving…' : 'Save fixed cost'}
+          {busy ? 'Saving...' : 'Save fixed cost'}
         </Btn>
       </div>
     </>
@@ -856,7 +856,7 @@ function MilestoneOverlay({ ms, onClose }) {
 
 /* ═════════════ monthly expense report ═════════════
    Opens a clean, on-brand sheet and hands it to the browser's print dialog,
-   which is also how you get a PDF. Deliberately light on paper — the dark
+   which is also how you get a PDF. Deliberately light on paper - the dark
    cluster look is for screens, not for ink. */
 
 function monthName(key) {
@@ -885,7 +885,7 @@ function buildMonthlyReport({ monthKeyStr, expenses, categories, jobs, company }
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   return `<!doctype html><html><head><meta charset="utf-8">
-<title>${esc(company)} — Expenses, ${esc(monthName(monthKeyStr))}</title>
+<title>${esc(company)} - Expenses, ${esc(monthName(monthKeyStr))}</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
   @page { margin: 14mm; }
@@ -956,7 +956,7 @@ ${rows.length ? rows.map(e => `<tr>
 
 <div class="foot">
   Printed ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} from Profit Board.
-  This is an operating record for seeing where money goes, not tax-ready bookkeeping — keep a bookkeeper
+  This is an operating record for seeing where money goes, not tax-ready bookkeeping - keep a bookkeeper
   or accounting software running alongside for filing.
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); }<\/script>

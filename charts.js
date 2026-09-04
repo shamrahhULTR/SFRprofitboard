@@ -338,7 +338,7 @@ function JobDollarPie({ job, expenses, categories, pl, jobs }) {
   return (
     <ChartCard title="Where this job's money went"
                subtitle={`${job.name}, out of ${moneyExact(revenue)}`}
-               note={left < 0 ? 'This job spent more than it brought in.' : 'Overhead is shared in by this job’s share of revenue.'}>
+               note={left < 0 ? 'This job spent more than it brought in.' : 'Overhead is shared in by this job\'s share of revenue.'}>
       <div style={{ width: '100%', height: 260 }}>
         <ResponsiveContainer>
           <PieChart>
