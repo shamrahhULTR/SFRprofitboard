@@ -1031,8 +1031,8 @@ const DEFAULT_CATEGORIES = [
   { id: 'c5',  name: 'Permits',                   bucket: 'job_cost',    excluded_from_ebitda: false },
   { id: 'c6',  name: 'Equipment rental',          bucket: 'job_cost',    excluded_from_ebitda: false },
   // building — this is what rent is
-  { id: 'c10', name: 'Rent — office',             bucket: 'overhead',    excluded_from_ebitda: false },
-  { id: 'c11', name: 'Rent — warehouse / yard',   bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c10', name: 'Office rent',               bucket: 'overhead',    excluded_from_ebitda: false },
+  { id: 'c11', name: 'Warehouse or yard rent',    bucket: 'overhead',    excluded_from_ebitda: false },
   { id: 'c12', name: 'Utilities',                 bucket: 'overhead',    excluded_from_ebitda: false },
   { id: 'c13', name: 'Storage units',             bucket: 'overhead',    excluded_from_ebitda: false },
   { id: 'c14', name: 'Internet',                  bucket: 'overhead',    excluded_from_ebitda: false },

@@ -590,7 +590,7 @@ function TeamPanel({ people, meId, onSetRole, busyId }) {
    month on their own until switched off. */
 
 const BILL_PRESETS = [
-  { name: 'Rent',              match: ['rent — office', 'rent — warehouse', 'rent', 'building lease'] },
+  { name: 'Rent',              match: ['office rent', 'warehouse or yard rent', 'rent', 'building lease'] },
   { name: 'Workers comp',      match: ['workers comp'] },
   { name: 'Warranty reserve',  match: ['warranty'] },
   { name: 'General liability', match: ['general liability'] },
@@ -964,8 +964,15 @@ ${rows.length ? rows.map(e => `<tr>
 }
 
 function printMonthlyReport(args) {
-  const w = window.open('', '_blank');
-  if (!w) { alert('Your browser blocked the report window. Allow pop-ups for this site and try again.'); return; }
-  w.document.write(buildMonthlyReport(args));
-  w.document.close();
+  // Served as a UTF-8 blob rather than document.write into about:blank, which
+  // ignores the charset tag and mangles any non-ASCII character in the data.
+  const html = buildMonthlyReport(args);
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  const w = window.open(url, '_blank');
+  if (!w) {
+    URL.revokeObjectURL(url);
+    alert('Your browser blocked the report window. Allow pop-ups for this site and try again.');
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
