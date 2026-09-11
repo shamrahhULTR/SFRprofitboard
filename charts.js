@@ -475,3 +475,132 @@ function OwnerPayChart({ series, running, setRunning, grain, setGrain, pace, set
     </section>
   );
 }
+
+/* --- Month by month, in a table ---
+   Every month the company has traded, dated by when each job and expense was
+   entered. Gross, net, owner pay and the company's cut side by side, the best
+   month flagged, and the rest of the year projected from recent pace. */
+function MonthlyTable({ series, ownerByMonth, pace }) {
+  if (!series.length) {
+    return (
+      <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+        <h3 className="text-xl font-black text-lite">Month by month</h3>
+        <p className="text-muted font-bold mt-2">Add a job and the months start filling in here.</p>
+      </section>
+    );
+  }
+
+  const ownerFor = k => (ownerByMonth || []).find(o => o.key === k) || { ownerPool: 0, companyCut: 0 };
+
+  const rows = series.map(m => {
+    const o = ownerFor(m.key);
+    return {
+      key: m.key, label: m.label, projected: false,
+      revenue: m.revenue, gross: m.grossProfit, net: m.netProfit,
+      owners: o.ownerPool, company: o.companyCut
+    };
+  });
+
+  // Best month so far, judged on net.
+  const best = rows.reduce((a, r) => (a && a.net >= r.net ? a : r), null);
+
+  // Project the rest of this calendar year off the last three months.
+  const recent = rows.slice(-3);
+  const avg = k => (recent.length ? recent.reduce((a, r) => a + r[k], 0) / recent.length : 0);
+  const mult = pace === 'half' ? 0.5 : pace === 'aggressive' ? 1.5 : 1;
+  const proj = [];
+  const now = new Date();
+  for (let m = now.getMonth() + 1; m < 12; m++) {
+    const d = new Date(now.getFullYear(), m, 1);
+    proj.push({
+      key: 'p' + m, projected: true,
+      label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      revenue: avg('revenue') * mult, gross: avg('gross') * mult, net: avg('net') * mult,
+      owners: avg('owners') * mult, company: avg('company') * mult
+    });
+  }
+
+  const all = [...rows, ...proj];
+  const totals = rows.reduce((a, r) => ({
+    revenue: a.revenue + r.revenue, gross: a.gross + r.gross, net: a.net + r.net,
+    owners: a.owners + r.owners, company: a.company + r.company
+  }), { revenue: 0, gross: 0, net: 0, owners: 0, company: 0 });
+
+  const Cell = ({ v, color, dim }) => (
+    <td className="px-3 py-3 text-right tnum whitespace-nowrap font-bold"
+        style={{ color: color || '#F2F0EA', opacity: dim ? 0.55 : 1 }}>{moneyExact(v)}</td>
+  );
+
+  return (
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="text-xl font-black text-lite">Month by month</h3>
+          <p className="text-sm text-muted font-semibold mt-1">
+            Dated by when the work and the spending were entered.
+          </p>
+        </div>
+        {best && best.net > 0 && (
+          <div className="rounded-2xl border border-line px-4 py-3 text-right">
+            <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Best month so far</div>
+            <div className="font-black text-lite mt-0.5">{best.label}</div>
+            <div className="figure text-xl font-black" style={{ color: '#3DDC84' }}>{moneyExact(best.net)}</div>
+            <div className="text-[10px] font-bold text-muted">net profit</div>
+          </div>
+        )}
+      </div>
+
+      <div className="overflow-x-auto relative mt-5">
+        <table className="w-full border-collapse min-w-[640px]">
+          <thead>
+            <tr className="bg-panel2">
+              <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[.08em] text-muted">Month</th>
+              <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[.08em] text-muted">Revenue</th>
+              <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[.08em] text-muted">Gross</th>
+              <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[.08em] text-muted">Net</th>
+              <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[.08em] text-muted">Owners</th>
+              <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[.08em] text-muted">Company</th>
+            </tr>
+          </thead>
+          <tbody>
+            {all.map(r => {
+              const isBest = best && r.key === best.key && !r.projected;
+              return (
+                <tr key={r.key} style={{ background: isBest ? 'rgba(61,220,132,.08)' : 'transparent' }}>
+                  <td className="px-3 py-3 font-black whitespace-nowrap"
+                      style={{ color: r.projected ? '#8891A8' : '#F2F0EA' }}>
+                    {r.label}
+                    {isBest && <span className="ml-2 text-[9px] font-black uppercase px-2 py-0.5 rounded-full"
+                                     style={{ background: '#0F2A1C', color: '#3DDC84' }}>Best</span>}
+                    {r.projected && <span className="ml-2 text-[9px] font-black uppercase px-2 py-0.5 rounded-full"
+                                          style={{ background: '#1B2440', color: '#8891A8' }}>Projected</span>}
+                  </td>
+                  <Cell v={r.revenue} dim={r.projected} />
+                  <Cell v={r.gross} color="#3DDC84" dim={r.projected} />
+                  <Cell v={r.net} color={r.net >= 0 ? '#F5B942' : '#FF6B6B'} dim={r.projected} />
+                  <Cell v={r.owners} color="#FF6B1A" dim={r.projected} />
+                  <Cell v={r.company} dim={r.projected} />
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid #2A3550' }}>
+              <td className="px-3 py-3 font-black text-lite">Actual so far</td>
+              <Cell v={totals.revenue} />
+              <Cell v={totals.gross} color="#3DDC84" />
+              <Cell v={totals.net} color={totals.net >= 0 ? '#F5B942' : '#FF6B6B'} />
+              <Cell v={totals.owners} color="#FF6B1A" />
+              <Cell v={totals.company} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p className="text-xs font-bold text-muted mt-3">
+        Projected months are the average of your last three, not a promise. Owners is what the
+        partners take after the company's 20%; Company is that 20%.
+      </p>
+    </section>
+  );
+}

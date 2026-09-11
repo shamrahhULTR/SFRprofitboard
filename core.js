@@ -401,6 +401,32 @@ function billsAsExpenses(bills) {
   return rows;
 }
 
+/* Category names already stored in the database carry mangled punctuation
+   ("Rent ,Ai office"): UTF-8 bytes that were read back as Mac Roman on the way
+   in. Repair them on the way out so the app reads correctly no matter what is
+   sitting in the row, and normalise the two rent names while we are here. */
+function tidyName(raw) {
+  let s = String(raw == null ? '' : raw);
+
+  // Undo the classic UTF-8-as-MacRoman / Latin-1 manglings.
+  s = s.replace(/\u201a\u00c4\u00ee|\u00e2\u20ac\u201d|\u00e2\u20ac\u201c|\u201a\u00c4\u00ec/g, '-')
+       .replace(/\u201a\u00c4\u00f4|\u00e2\u20ac\u2122/g, "'")
+       .replace(/\u201a\u00c4\u00fa|\u201a\u00c4\u00f9|\u00e2\u20ac\u009c|\u00e2\u20ac\u009d/g, '"')
+       .replace(/\u201a\u00c4\u00b6|\u00e2\u20ac\u00a6/g, '...');
+
+  // Anything still non-ASCII in a name is junk from the same cause.
+  s = s.replace(/[^\x20-\x7E]/g, '-');
+  s = s.replace(/\s*-+\s*/g, ' - ').replace(/\s{2,}/g, ' ').trim();
+  s = s.replace(/^-\s*|\s*-$/g, '').trim();
+
+  // The two that read badly either way.
+  if (/^rent\b.*office/i.test(s)) return 'Office rent';
+  if (/^rent\b.*(warehouse|yard)/i.test(s)) return 'Warehouse or yard rent';
+  return s;
+}
+
+const tidyCategories = list => (list || []).map(c => ({ ...c, name: tidyName(c.name) }));
+
 const DOC_KINDS = [
   { v: 'receipt', t: 'Receipt' }, { v: 'invoice', t: 'Invoice' },
   { v: 'permit', t: 'Permit' },   { v: 'photo', t: 'Photo' }, { v: 'other', t: 'Other' }

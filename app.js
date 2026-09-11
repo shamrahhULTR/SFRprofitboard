@@ -76,10 +76,11 @@ const BUCKET_ORDER = [
    file input. If it's offline the expense is queued locally and synced later,
    so standing in a driveway with no signal still works. */
 
-function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin }) {
+function FastExpense({ categories, jobs, recentIds, onSaved, onClose, isAdmin, presetJobId }) {
   const [amount, setAmount] = useState('');
   const [catId, setCatId] = useState('');
-  const [jobId, setJobId] = useState('');
+  // Opened from a job's '+ Add cost' button, the job is already picked.
+  const [jobId, setJobId] = useState(presetJobId || '');
   const [vendor, setVendor] = useState('');
   const [date, setDate] = useState('');
   const [file, setFile] = useState(null);
@@ -319,7 +320,7 @@ function MathRow({ label, value, bold, accent }) {
   );
 }
 
-function JobCard({ j, docCount, expenseTotal, ownerCtx, isAdmin, onToggle, onEdit, onDelete, onPapers }) {
+function JobCard({ j, docCount, expenseTotal, ownerCtx, isAdmin, onToggle, onEdit, onDelete, onPapers, onAddCost }) {
   const m = ownerSplit(j, expenseTotal, ownerCtx);
   const [showMath, setShowMath] = useState(false);
   const st = marginState(m.margin);
@@ -417,6 +418,9 @@ function JobCard({ j, docCount, expenseTotal, ownerCtx, isAdmin, onToggle, onEdi
       )}
 
       <div className="flex gap-2 mt-4 flex-wrap">
+        {isAdmin && onAddCost && (
+          <Btn tone="orange" size="md" onClick={() => onAddCost(j)} className="flex-1">+ Add cost</Btn>
+        )}
         <Btn tone="navy" size="md" onClick={() => onPapers(j)} className="flex-1">🧾 Papers{docCount ? ` (${docCount})` : ''}</Btn>
         <Btn tone="ghost" size="md" onClick={() => onEdit(j)} className="flex-1">Edit</Btn>
         {isAdmin && <Btn tone="danger" size="md" onClick={() => onDelete(j)}>Delete</Btn>}

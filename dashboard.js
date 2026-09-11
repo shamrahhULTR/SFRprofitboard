@@ -66,6 +66,7 @@ function Dashboard({ session, profile, signOut }) {
   const [ownerGrain, setOwnerGrain] = useState('month');
   const [ownerRunning, setOwnerRunning] = useState(true);
   const [ownerPace, setOwnerPace] = useState('recent');
+  const [jobSearch, setJobSearch] = useState('');
   const [reportMonth, setReportMonth] = useState(monthKey(todayISO()));
   const [cloudMissing, setCloudMissing] = useState(false);
   const [jobs, setJobs] = useState([]);
@@ -134,7 +135,7 @@ function Dashboard({ session, profile, signOut }) {
     if (!CLOUD) {
       setJobs(load(LS_JOBS, [])); setMkt(load(LS_MKT, []));
       setExpenses(load(LS_EXP, [])); setRevenue(load(LS_REV, []));
-      setCategories(load('sfr_pb_cats', DEFAULT_CATEGORIES));
+      setCategories(tidyCategories(load('sfr_pb_cats', DEFAULT_CATEGORIES)));
       setBills(load(LS_BILLS, []));
       setLoading(false); return;
     }
@@ -145,7 +146,7 @@ function Dashboard({ session, profile, signOut }) {
         sb.from('documents').select('*').order('created_at', { ascending: false })
       ]);
       if (jq.error) throw jq.error;
-      setCategories(cq.error ? DEFAULT_CATEGORIES : (cq.data || []));
+      setCategories(tidyCategories(cq.error ? DEFAULT_CATEGORIES : (cq.data || [])));
       setDocs(dq.error ? [] : (dq.data || []));
 
       // Local overrides for the 20% toggle, used until the column exists.
@@ -544,6 +545,16 @@ function Dashboard({ session, profile, signOut }) {
     return acc;
   }, [jobs, expensesForJob, ownerCtx]);
 
+  // Owner pay per calendar month, joined into the month-by-month table.
+  const ownerByMonth = useMemo(
+    () => ownerSeries(jobs, expensesForJob, ownerCtx, 'month'),
+    [jobs, expensesForJob, ownerCtx]);
+
+  const shownJobs = useMemo(() => {
+    const q = jobSearch.trim().toLowerCase();
+    return q ? jobs.filter(j => String(j.name || '').toLowerCase().includes(q)) : jobs;
+  }, [jobs, jobSearch]);
+
   const ownerChart = useMemo(() => {
     const base = ownerSeries(jobs, expensesForJob, ownerCtx, ownerGrain);
     return ownerRunning ? cumulativeOwner(base) : base;
@@ -751,6 +762,8 @@ function Dashboard({ session, profile, signOut }) {
                              grain={ownerGrain} setGrain={setOwnerGrain}
                              pace={ownerPace} setPace={setOwnerPace} />
 
+              <MonthlyTable series={series} ownerByMonth={ownerByMonth} pace={ownerPace} />
+
               <div className="grid gap-5 lg:grid-cols-2">
                 <SpendPie pl={pl} />
                 <MonthlyBars series={series} />
@@ -766,6 +779,10 @@ function Dashboard({ session, profile, signOut }) {
                               categories={categories} pl={pl} jobs={jobs} />
               )}
             </div>
+          )}
+
+          {tab === 'dash' && isAdmin && (
+            <MonthlyTable series={series} ownerByMonth={ownerByMonth} pace={ownerPace} />
           )}
 
           {tab === 'dash' && isAdmin && (
@@ -863,6 +880,11 @@ function Dashboard({ session, profile, signOut }) {
                 <h2 className="text-2xl font-black text-lite">Every job</h2>
                 <Btn tone="green" size="md" onClick={() => setModal({ kind: 'job' })}>＋ Add job</Btn>
               </div>
+              {jobs.length > 0 && (
+                <input type="search" value={jobSearch} onChange={e => setJobSearch(e.target.value)}
+                       placeholder="Find a job, e.g. Steven Johnson"
+                       className="w-full rounded-2xl border-2 border-line px-5 py-4 text-lg font-bold" />
+              )}
               {jobs.length === 0 ? (
                 <div className="bg-panel rounded-3xl card-shadow p-10 text-center">
                   <div className="text-muted mx-auto w-fit mb-4"><Icon name="home" size={44} /></div>
@@ -871,12 +893,16 @@ function Dashboard({ session, profile, signOut }) {
                 </div>
               ) : (
                 <div className="grid gap-4 lg:grid-cols-2">
-                  {jobs.map(j => (
+                  {shownJobs.length === 0 && (
+                    <p className="text-muted font-bold lg:col-span-2">No job matches "{jobSearch}".</p>
+                  )}
+                  {shownJobs.map(j => (
                     <JobCard key={j.id} j={j} isAdmin={isAdmin}
                              docCount={docs.filter(d => d.job_id === j.id).length}
                              expenseTotal={expensesForJob(j.id)} ownerCtx={ownerCtx}
                              onToggle={toggleJob} onEdit={row => setModal({ kind: 'job', row })}
-                             onDelete={delJob} onPapers={row => setModal({ kind: 'docs', row })} />
+                             onDelete={delJob} onPapers={row => setModal({ kind: 'docs', row })}
+                             onAddCost={row => setModal({ kind: 'fast', job: row })} />
                   ))}
                 </div>
               )}
@@ -987,8 +1013,12 @@ function Dashboard({ session, profile, signOut }) {
                    flex items-center justify-center active:scale-95 transition"><Icon name="plus" size={30} /></button>
 
       {modal?.kind === 'fast' && (
-        <Modal title="Add an expense" subtitle="Amount, what it was for, snap the receipt." onClose={() => setModal(null)}>
+        <Modal title={modal.job ? `Add a cost to ${modal.job.name}` : 'Add an expense'}
+               subtitle={modal.job ? 'Materials, labor, dumpster: it comes off this job\'s profit.'
+                                   : 'Amount, what it was for, snap the receipt.'}
+               onClose={() => setModal(null)}>
           <FastExpense categories={categories} jobs={jobs} recentIds={recentCats}
+                       presetJobId={modal.job ? modal.job.id : ''}
                        isAdmin={isAdmin} onSaved={saveExpense} onClose={() => setModal(null)} />
         </Modal>
       )}
