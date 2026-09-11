@@ -608,6 +608,7 @@ function Dashboard({ session, profile, signOut }) {
     { v: 'out',  t: 'Money Out', icon: 'money' },
     { v: 'jobs', t: 'Jobs',      icon: 'home' },
     ...(isAdmin ? [{ v: 'charts', t: 'Charts', icon: 'trend' }] : []),
+    ...(isAdmin ? [{ v: 'owners', t: 'Owners', icon: 'wallet' }] : []),
     ...(isAdmin ? [{ v: 'bills', t: 'Fixed Costs', icon: 'repeat' }] : []),
     ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: 'mega' }] : []),
     ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: 'users' }] : [])
@@ -820,6 +821,11 @@ function Dashboard({ session, profile, signOut }) {
             </section>
           )}
 
+          {/* ── OWNERS ── */}
+          {tab === 'owners' && isAdmin && (
+            <OwnersPanel jobs={jobs} expensesForJob={expensesForJob} ownerCtx={ownerCtx} />
+          )}
+
           {/* ── FIXED COSTS ── */}
           {tab === 'bills' && isAdmin && (
             <BillsPanel bills={bills} categories={categories}
@@ -987,6 +993,7 @@ function Dashboard({ session, profile, signOut }) {
                onClick={e => e.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-line mx-auto mb-4" />
             {[
+              ...(isAdmin ? [{ v: 'owners', t: 'Owners', icon: 'wallet' }] : []),
               ...(isAdmin ? [{ v: 'bills', t: 'Fixed costs', icon: 'repeat' }] : []),
               ...(isAdmin ? [{ v: 'mkt', t: 'Marketing', icon: 'mega' }] : []),
               ...(CLOUD && isAdmin ? [{ v: 'team', t: 'Who gets in', icon: 'users' }] : [])

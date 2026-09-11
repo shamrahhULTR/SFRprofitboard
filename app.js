@@ -764,6 +764,7 @@ function Icon({ name, size = 22, className = '' }) {
     users:  <><circle cx="9" cy="9" r="3.1" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><circle cx="16.8" cy="10" r="2.3" /><path d="M15.8 14.6a4.5 4.5 0 0 1 4.7 4.4" /></>,
     flame:  <><path d="M12 3.5s4.8 4.4 4.8 8.6a4.8 4.8 0 0 1-9.6 0c0-1.9.9-3.5 1.9-4.9.4 1.4 1 2.3 2 2.9-.1-2.6.1-4.6.9-6.6z" /></>,
     plus:   <><path d="M12 5v14M5 12h14" /></>,
+    wallet: <><rect x="3.5" y="7" width="17" height="12" rx="2.5" /><path d="M6 7V6a1.5 1.5 0 0 1 1.5-1.5H17" /><circle cx="16" cy="13" r="1.4" /></>,
     camera: <><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M9 7l1.6-2.6h2.8L15 7" /><circle cx="12" cy="13.2" r="3.3" /></>
   };
   return (
@@ -979,4 +980,142 @@ function printMonthlyReport(args) {
     return;
   }
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* ===================== owners ===================== */
+/* Every job and what it pays the owners, split into money already banked
+   (installed) and money still coming (in progress). Same math as the job
+   cards: profit after materials, labor and dumpster, minus the company's 20%
+   unless the job is carved out. */
+
+function OwnersPanel({ jobs, expensesForJob, ownerCtx }) {
+  const rows = (jobs || []).map(j => {
+    const sp = ownerSplit(j, expensesForJob(j.id), ownerCtx);
+    return {
+      id: j.id, name: j.name, done: !!j.done,
+      date: String(j.installed_on || j.created_at || '').slice(0, 10),
+      paid: sp.revenue, costs: sp.cost, profit: sp.profit,
+      company: sp.companyCut, owners: sp.ownerPool, exempt: sp.exempt
+    };
+  }).filter(r => r.paid > 0)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const sum = list => list.reduce((a, r) => ({
+    paid: a.paid + r.paid, costs: a.costs + r.costs, profit: a.profit + r.profit,
+    company: a.company + r.company, owners: a.owners + r.owners
+  }), { paid: 0, costs: 0, profit: 0, company: 0, owners: 0 });
+
+  const installed = rows.filter(r => r.done);
+  const pending = rows.filter(r => !r.done);
+  const tI = sum(installed), tP = sum(pending), tAll = sum(rows);
+
+  const Money = ({ v, color, bold }) => (
+    <span className={'tnum whitespace-nowrap ' + (bold ? 'font-black' : 'font-bold')}
+          style={{ color: color || '#F2F0EA' }}>{moneyExact(v)}</span>
+  );
+
+  const Group = ({ title, note, list, total }) => (
+    <section className="bg-panel rounded-3xl card-shadow p-5 sm:p-7">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-xl font-black text-lite">{title}</h3>
+          <p className="text-sm text-muted font-semibold mt-1">{note}</p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-black uppercase tracking-[.1em] text-muted">Owners take</div>
+          <div className="figure text-2xl font-black" style={{ color: '#FF6B1A' }}>{moneyExact(total.owners)}</div>
+        </div>
+      </div>
+
+      {list.length === 0 ? (
+        <p className="text-muted font-bold mt-4">Nothing here yet.</p>
+      ) : (
+        <>
+          {/* Phones: one card per job */}
+          <div className="grid gap-3 mt-5 sm:hidden">
+            {list.map(r => (
+              <div key={r.id} className="rounded-2xl border border-line p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-black text-lite leading-tight">{r.name}</div>
+                    <div className="text-xs font-bold text-muted mt-0.5">{r.date}</div>
+                  </div>
+                  {r.exempt && <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full shrink-0"
+                                     style={{ background: '#2A2410', color: '#F5B942' }}>No company cut</span>}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-3 text-sm">
+                  <span className="text-muted font-bold">Paid</span><span className="text-right"><Money v={r.paid} /></span>
+                  <span className="text-muted font-bold">Costs</span><span className="text-right"><Money v={-r.costs} color="#8891A8" /></span>
+                  <span className="text-muted font-bold">Profit</span><span className="text-right"><Money v={r.profit} color="#3DDC84" /></span>
+                  <span className="text-muted font-bold">Company 20%</span><span className="text-right"><Money v={-r.company} color="#8891A8" /></span>
+                  <span className="font-black text-lite">Owners take</span><span className="text-right"><Money v={r.owners} color="#FF6B1A" bold /></span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Wider screens: a table */}
+          <div className="hidden sm:block overflow-x-auto relative mt-5">
+            <table className="w-full border-collapse min-w-[720px]">
+              <thead>
+                <tr className="bg-panel2">
+                  {['Job', 'Date', 'Paid', 'Costs', 'Profit', 'Company 20%', 'Owners take'].map((h, i) => (
+                    <th key={h} className={'px-3 py-3 text-[10px] font-black uppercase tracking-[.08em] text-muted ' + (i < 2 ? 'text-left' : 'text-right')}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(r => (
+                  <tr key={r.id} className="border-b border-line">
+                    <td className="px-3 py-3 font-black text-lite">
+                      {r.name}
+                      {r.exempt && <span className="ml-2 text-[9px] font-black uppercase px-2 py-0.5 rounded-full"
+                                         style={{ background: '#2A2410', color: '#F5B942' }}>No company cut</span>}
+                    </td>
+                    <td className="px-3 py-3 text-xs font-bold text-muted whitespace-nowrap">{r.date}</td>
+                    <td className="px-3 py-3 text-right"><Money v={r.paid} /></td>
+                    <td className="px-3 py-3 text-right"><Money v={r.costs} color="#8891A8" /></td>
+                    <td className="px-3 py-3 text-right"><Money v={r.profit} color="#3DDC84" /></td>
+                    <td className="px-3 py-3 text-right"><Money v={r.company} color="#8891A8" /></td>
+                    <td className="px-3 py-3 text-right"><Money v={r.owners} color="#FF6B1A" bold /></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="px-3 py-3 font-black text-lite" colSpan={2}>Total</td>
+                  <td className="px-3 py-3 text-right"><Money v={total.paid} bold /></td>
+                  <td className="px-3 py-3 text-right"><Money v={total.costs} color="#8891A8" bold /></td>
+                  <td className="px-3 py-3 text-right"><Money v={total.profit} color="#3DDC84" bold /></td>
+                  <td className="px-3 py-3 text-right"><Money v={total.company} color="#8891A8" bold /></td>
+                  <td className="px-3 py-3 text-right"><Money v={total.owners} color="#FF6B1A" bold /></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        <Tile label="Owners, installed" value={money(tI.owners)} sub={`${installed.length} ${installed.length === 1 ? 'job' : 'jobs'} finished`} color="#FF6B1A" />
+        <Tile label="Owners, still coming" value={money(tP.owners)} sub={`${pending.length} ${pending.length === 1 ? 'job' : 'jobs'} in progress`} color="#F5B942" />
+        <Tile label="Owners, all jobs" value={money(tAll.owners)} sub={`Company keeps ${money(tAll.company)}`} />
+      </div>
+
+      <div className="rounded-2xl border border-line px-5 py-4">
+        <div className="font-mono text-xs sm:text-sm text-ink leading-relaxed">
+          profit = paid - materials - labor - dumpster<br />
+          company = profit x 20% &nbsp;(none on a carved-out job or a loss)<br />
+          <span style={{ color: '#FF6B1A' }}>owners take = profit - company</span>
+        </div>
+      </div>
+
+      <Group title="Installed" note="Jobs finished. This money is earned." list={installed} total={tI} />
+      <Group title="In progress" note="Jobs not installed yet. Projected until they finish." list={pending} total={tP} />
+    </div>
+  );
 }
